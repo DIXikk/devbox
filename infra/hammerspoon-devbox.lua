@@ -1,7 +1,7 @@
 -- Devbox clipboard bridge, mac side. Two shortcuts in Warp:
 --   ⌘V  with an IMAGE on the clipboard → Ctrl+V (native cc image paste, served by the xclip shim).
 --        Text/files are left alone (⌘V = normal terminal paste).
---   ⌘⇧V with a FILE on the clipboard (⌘C in Finder) → stages the file into the SHARED devbox
+--   ⌘⇧V with a FILE (⌘C in Finder) or an IMAGE on the clipboard → stages it into the SHARED devbox
 --        /inbox (mounted in every container) and TYPES the container path /inbox/<name> into
 --        the prompt → cc reads the file. The path is uniform → no target session to resolve.
 --
@@ -25,6 +25,9 @@ local function clipboardHasFile()
 end
 
 -- Global variables on purpose — local eventtaps would be garbage collected.
+-- On a reload, stop the previous taps so the shortcuts do not fire twice.
+if devboxClipboardPaste then devboxClipboardPaste:stop() end
+if devboxPasteFile then devboxPasteFile:stop() end
 
 -- ⌘V + image on the clipboard → Ctrl+V (cc image paste).
 devboxClipboardPaste = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
@@ -43,14 +46,16 @@ devboxClipboardPaste = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, func
 end)
 devboxClipboardPaste:start()
 
--- ⌘⇧V + file on the clipboard → stage into the shared /inbox, then paste the path.
+-- ⌘⇧V + file or screenshot on the clipboard → stage into the shared /inbox, then paste the path.
 devboxPasteFile = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(e)
   if not e:getFlags():containExactly({ "cmd", "shift" }) then return false end
   if e:getKeyCode() ~= hs.keycodes.map.v then return false end
   local app = hs.application.frontmostApplication()
   if not app or app:bundleID() ~= WARP_BUNDLE then return false end
-  if not clipboardHasFile() then
-    hs.notify.new({ title = "Devbox paste", informativeText = "No file on the clipboard — ⌘C in Finder" }):send()
+  local types = hs.pasteboard.typesAvailable()
+  local kind = clipboardHasFile() and "file" or (types and types.image and "image")
+  if not kind then
+    hs.notify.new({ title = "Devbox paste", informativeText = "No file or image on the clipboard" }):send()
     return true
   end
   -- async (network call); the script returns the container path on stdout and also leaves it on the clipboard.
@@ -67,7 +72,7 @@ devboxPasteFile = hs.eventtap.new({ hs.eventtap.event.types.keyDown }, function(
       return
     end
     hs.eventtap.keyStrokes(path)
-  end, { PASTE_SCRIPT }):start()
+  end, { PASTE_SCRIPT, kind }):start()
   return true
 end)
 devboxPasteFile:start()

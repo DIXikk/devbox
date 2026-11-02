@@ -1,0 +1,79 @@
+// Loaded by sshDialogScript, with promptData supplied as JSON.
+ObjC.import("AppKit");
+
+var app = $.NSApplication.sharedApplication;
+app.setActivationPolicy($.NSApplicationActivationPolicyAccessory);
+var alert = $.NSAlert.alloc.init;
+alert.messageText = promptData.title;
+alert.informativeText = promptData.message;
+alert.alertStyle = $.NSAlertStyleWarning;
+var deny = alert.addButtonWithTitle("Deny");
+var once = alert.addButtonWithTitle("Approve once");
+var approve = alert.addButtonWithTitle("Approve for 60 min");
+deny.keyEquivalent = "\r";
+once.keyEquivalent = "";
+approve.keyEquivalent = "";
+
+var accessory = $.NSView.alloc.initWithFrame($.NSMakeRect(0, 0, 440, 104));
+function label(text, frame) {
+  var field = $.NSTextField.labelWithString(text);
+  field.frame = frame;
+  accessory.addSubview(field);
+  return field;
+}
+label("Access duration", $.NSMakeRect(0, 78, 440, 20));
+var duration = $.NSComboBox.alloc.initWithFrame($.NSMakeRect(0, 42, 230, 28));
+duration.addItemsWithObjectValues(promptData.presets.map(function (n) { return n + " min"; }).concat(["Permanently"]));
+duration.numberOfVisibleItems = 7;
+duration.completes = false;
+duration.stringValue = "60 min";
+duration.setAccessibilityLabel("Access duration in minutes, or Permanently");
+accessory.addSubview(duration);
+var HINT = "Pick a preset or type your own number of minutes.";
+var hint = label(HINT, $.NSMakeRect(0, 17, 440, 20));
+hint.font = $.NSFont.systemFontOfSize(11);
+hint.textColor = $.NSColor.secondaryLabelColor;
+var scope = label("Applies to this session and key. Access can be revoked in the dashboard.", $.NSMakeRect(0, 0, 440, 17));
+scope.font = $.NSFont.systemFontOfSize(11);
+scope.textColor = $.NSColor.secondaryLabelColor;
+alert.accessoryView = accessory;
+
+function selectedDuration() {
+  var raw = ObjC.unwrap(duration.stringValue).trim();
+  if (raw === "Permanently") return { decision: "approve", grantMinutes: 0, grantPermanent: true };
+  if (!/^\d+(?:\s*min)?$/.test(raw)) return null;
+  var minutes = Number(raw.replace(/\s*min$/, ""));
+  // Never turn invalid input into a permanent or one-time approval.
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || Date.now() + minutes * 60000 > 8640000000000000) return null;
+  return { decision: "approve", grantMinutes: minutes };
+}
+
+// devd stops waiting after 90 s; close the dialog a little earlier so a late click cannot look like a decision.
+var deadline = Date.now() + 85000;
+function updateDuration() {
+  var selected = selectedDuration();
+  approve.enabled = selected !== null;
+  approve.title = !selected ? "Approve for…" : selected.grantPermanent ? "Approve permanently" : "Approve for " + selected.grantMinutes + " min";
+  hint.stringValue = selected ? HINT : "Enter a positive whole number of minutes, or pick Permanently.";
+  if (Date.now() >= deadline) app.abortModal;
+}
+ObjC.registerSubclass({
+  name: "DevboxSshDurationTimer",
+  methods: {
+    "tick:": { types: ["void", ["id"]], implementation: function () { updateDuration(); } }
+  }
+});
+var timerTarget = $.DevboxSshDurationTimer.alloc.init;
+var timer = $.NSTimer.timerWithTimeIntervalTargetSelectorUserInfoRepeats(0.1, timerTarget, "tick:", null, true);
+$.NSRunLoop.currentRunLoop.addTimerForMode(timer, $.NSModalPanelRunLoopMode);
+updateDuration();
+app.activateIgnoringOtherApps(true);
+var response = Number(alert.runModal);
+timer.invalidate;
+var answer = null;
+if (Date.now() < deadline) {
+  if (response === 1000) answer = { decision: "deny", grantMinutes: 0 };
+  if (response === 1001) answer = { decision: "approve", grantMinutes: 0 };
+  if (response === 1002) answer = selectedDuration();
+}
+JSON.stringify(answer);

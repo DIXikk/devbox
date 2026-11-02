@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { parseDialogAnswer, sshDialogScript, type SshApprovalReq } from "./sshPrompt";
+import { parseDialogAnswer, sshDialogScript, type SshApprovalAnswer, type SshApprovalReq } from "./sshPrompt";
 import { dbDialogScript, parseDbAnswer, type DbRequestReq } from "./dbPrompt";
 
 export interface Mapping { from: string; to: string }
@@ -151,7 +151,7 @@ export interface Actions {
   /** Asynchronous on purpose: the dialog stays up for up to 85 s and the listener is single-threaded — with
    *  `spawnSync` it would serve NOTHING else for that time (neither notifications nor /clicked).
    *  A review finding. */
-  askSshApproval(req: SshApprovalReq): Promise<{ decision: "approve" | "deny"; grantMinutes: number } | null>;
+  askSshApproval(req: SshApprovalReq): Promise<SshApprovalAnswer | null>;
   askDbRequest(req: DbRequestReq): Promise<{ decision: "deny" | "open" } | null>;
 }
 
@@ -290,8 +290,9 @@ export function realActions(
      *  for the click. The answer is returned to the caller (devd), the listener itself decides
      *  nothing. */
     async askSshApproval(req) {
-      const r = await textRunAsync("osascript", "-e", sshDialogScript(req));
-      return parseDialogAnswer(r.stdout);
+      const r = await textRunAsync("osascript", "-l", "JavaScript", "-e", sshDialogScript(req));
+      // A failed osascript must not approve from partial stdout.
+      return r.code === 0 ? parseDialogAnswer(r.stdout) : null;
     },
     async askDbRequest(req) {
       const r = await textRunAsync("osascript", "-e", dbDialogScript(req));

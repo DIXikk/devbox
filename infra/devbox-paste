@@ -1,12 +1,14 @@
 #!/bin/sh
-# devbox-paste (mac): stage a file from the mac clipboard into the SHARED devbox inbox
-# (/api/clipboard/file?target=shared → /srv/dev/_inbox, mounted at /inbox in every
+# devbox-paste [file|image] (mac): stage a file or screenshot from the mac clipboard into the SHARED
+# devbox inbox (/api/clipboard/<kind>?target=shared → /srv/dev/_inbox, mounted at /inbox in every
 # container) and put the container path /inbox/<name> on the clipboard as TEXT.
 # Called by Hammerspoon on ⌘⇧V; on success (exit 0) it prints the path to STDOUT and Hammerspoon
 # types it character by character. A synthetic ⌘V is not used — Warp does not react to it as its own
 # keyboard shortcut (Ctrl+V works, ⌘V does not), so the paste was silently lost.
 # The path is uniform across sessions → no need to guess the target session.
 set -u
+kind="${1:-file}"
+case "$kind" in file|image) ;; *) exit 2 ;; esac
 DEVD="${DEVD_URL:-}"
 [ -n "$DEVD" ] || DEVD=$(sed -n 's/.*"devdUrl"[^"]*"\([^"]*\)".*/\1/p' "$HOME/.config/devbox-cli/config.json" 2>/dev/null)
 [ -n "$DEVD" ] || DEVD="http://127.0.0.1:4300"
@@ -14,13 +16,15 @@ DEVD="${DEVD_URL:-}"
 notify() { osascript -e "display notification \"$1\" with title \"Devbox paste\"" >/dev/null 2>&1; }
 
 out=$(mktemp) || exit 2
-code=$(curl -s -o "$out" -w "%{http_code}" --max-time 60 "$DEVD/api/clipboard/file?target=shared") || { rm -f "$out"; notify "devd unreachable"; exit 2; }
+code=$(curl -s -o "$out" -w "%{http_code}" --max-time 60 "$DEVD/api/clipboard/$kind?target=shared") || { rm -f "$out"; notify "devd unreachable"; exit 2; }
 case "$code" in
   200) p=$(cat "$out"); rm -f "$out"
-       printf '%s' "$p" | pbcopy   # clipboard stays as a backup for a manual ⌘V
+       # A file: the path stays on the clipboard as a backup for a manual ⌘V. A screenshot stays
+       # on the clipboard instead, so it can be pasted again.
+       [ "$kind" != file ] || printf '%s' "$p" | pbcopy
        printf '%s' "$p"            # stdout = what Hammerspoon types into the prompt
        exit 0 ;;
-  204) rm -f "$out"; notify "No file on the clipboard — ⌘C in Finder"; exit 1 ;;
+  204) rm -f "$out"; notify "No file or image on the clipboard"; exit 1 ;;
   413) rm -f "$out"; notify "File is too large (>25 MB)"; exit 1 ;;
   *)   rm -f "$out"; notify "Error $code"; exit 2 ;;
 esac

@@ -248,3 +248,21 @@ test("clipboardFile: no helper (osascript fallback) → null", () => {
 test("MAX_FILE_BYTES is 25 MB", () => {
   expect(MAX_FILE_BYTES).toBe(25 * 1024 * 1024);
 });
+
+test("the SSH dialog runs as JXA asynchronously and keeps an explicit permanent choice", async () => {
+  let commands: string[] = [];
+  const answer = { decision: "approve", grantMinutes: 0, grantPermanent: true } as const;
+  const actions = realActions(undefined, null, {}, {}, undefined, async (...cmd) => {
+    commands = cmd;
+    return { code: 0, stdout: JSON.stringify(answer) };
+  });
+  expect(await actions.askSshApproval({ id: "test", title: "test", why: "test" })).toEqual(answer);
+  expect(commands.slice(0, 4)).toEqual(["osascript", "-l", "JavaScript", "-e"]);
+});
+
+test("a failed SSH dialog process cannot approve from partial stdout", async () => {
+  const actions = realActions(undefined, null, {}, {}, undefined, async () => ({
+    code: 1, stdout: '{"decision":"approve","grantMinutes":0,"grantPermanent":true}',
+  }));
+  expect(await actions.askSshApproval({ id: "test", title: "test", why: "test" })).toBeNull();
+});
