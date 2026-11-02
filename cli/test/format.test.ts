@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SessionInfo } from "../src/api";
-import { endEffect, endPrompt, formatDoctor, formatOpenProgress, formatPorts, formatSessions, openProgressPercent, progressBar, sessionLabel, uptime } from "../src/format";
+import { endEffect, endPrompt, fitLine, formatDoctor, formatOpenProgress, formatPorts, formatSessions, openProgressPercent, progressBar, sessionLabel, uptime } from "../src/format";
 
 const row: SessionInfo = {
   id: "dev-shop-cms", folder: "acme", project: "shop", repo: "cms", container: "dev-shop-cms",
@@ -148,4 +148,10 @@ test("formatOpenProgress next to a bar: no second percentage, short container la
   expect(formatOpenProgress({ step: "worktree", git: { phase: "Updating files", percent: 63 } }, 14_000, { withPercent: false })).toBe("checking out · 14 s");
   expect(formatOpenProgress({ step: "container", detail: "waiting for the docker sidecar" }, 26_000, { withPercent: false })).toBe("starting container · docker sidecar · 26 s");
   expect(formatOpenProgress({ step: "clone", clone: { phase: "Receiving objects", percent: 45, detail: "30 MiB/s" } }, 5_000, { withPercent: false })).toBe("cloning · Receiving objects · 30 MiB/s · 5 s");
+});
+
+test("fitLine keeps the spinner on one terminal line", () => {
+  expect(fitLine("short", 20)).toBe("short");
+  expect(fitLine("Opening acme/web ▕████░░▏ 40% · cloning", 20)).toBe("Opening acme/web ▕█…");
+  expect([...fitLine("x".repeat(500), 80)].length).toBe(80);
 });
