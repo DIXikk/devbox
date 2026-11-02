@@ -12,7 +12,7 @@ import { agentLabel, altCfg, buildExecArgv, probeArgv, runInteractive, sessionPi
 import { parseProbe } from "../../devd/src/tmux";
 import { loadCliConfig, type CliConfig } from "./config";
 import { runDoctor } from "./doctor";
-import { clearScreen, endEffect, formatDoctor, formatOpenProgress, formatPorts, formatSessions, openProgressPercent, progressBar, sessionLabel } from "./format";
+import { clearScreen, endEffect, fitLine, formatDoctor, formatOpenProgress, formatPorts, formatSessions, openProgressPercent, progressBar, sessionLabel } from "./format";
 import { runLocal } from "./local";
 import { promptName, sessionManager } from "./manager";
 import { agentSwitchSummary, exitMenuOptions, type ExitAction } from "./manager-view";
@@ -649,7 +649,10 @@ async function openAndAttach(deps: Deps, t: Target, opts: { ask: boolean; agent?
       if (!polling) break;
       if (p) shown = Math.max(shown, openProgressPercent(p));
       const text = p ? formatOpenProgress(p, Date.now() - started, { withPercent: false }) : `${Math.round((Date.now() - started) / 1000)} s`;
-      s.message(`${opening} ${progressBar(shown)} ${String(shown).padStart(3)}% · ${text}`);
+      // One terminal line at most: the spinner redraws only the current line, so a wrapped one
+      // leaves a copy behind on every frame. Clack adds "◒  " in front and up to three animated
+      // dots after the message, hence the margin.
+      s.message(fitLine(`${opening} ${progressBar(shown)} ${String(shown).padStart(3)}% · ${text}`, (process.stdout.columns ?? 120) - 10));
     }
   };
   void poll();

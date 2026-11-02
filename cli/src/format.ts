@@ -151,3 +151,10 @@ export function progressBar(percent: number, width = 24): string {
   const rest = width - full - (part ? 1 : 0);
   return `▕${"█".repeat(full)}${part}${"░".repeat(Math.max(0, rest))}▏`;
 }
+
+/** Cuts `line` to `width` terminal columns with an ellipsis (counted in code points; the
+ *  progress bar's block characters are one column each). */
+export function fitLine(line: string, width: number): string {
+  const chars = [...line];
+  return chars.length <= width ? line : `${chars.slice(0, Math.max(0, width - 1)).join("")}…`;
+}
