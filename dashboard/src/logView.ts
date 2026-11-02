@@ -9,7 +9,7 @@ export const LOG_GROUPS: LogGroup[] = [
   { id: "cc", label: "cc upkeep", types: ["cc_upgraded", "cc_skipped", "cc_restart_failed", "cc_upgrade_failed"] },
   { id: "schedule", label: "Scheduled runs", types: ["schedule_run", "schedule_skip", "schedule_error", "auto_end", "auto_end_kept", "auto_end_error"] },
   { id: "prod", label: "Production DB", types: ["prod_db_access", "prod_write_proposed", "prod_write_executed", "prod_write_rejected"] },
-  { id: "host", label: "Host maintenance", types: ["host_update", "host_reboot"] },
+  { id: "host", label: "Host maintenance", types: ["host_update", "host_reboot", "self_update_started"] },
   { id: "access", label: "Access", types: ["terminal_open", "terminal_control", "ssh_key_access", "clipboard_access"] },
 ];
 

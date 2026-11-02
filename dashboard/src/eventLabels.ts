@@ -49,6 +49,7 @@ const LABELS: Record<string, { label: string; kind: EventKind }> = {
   cc_upgrade_failed: { label: "cc upgrade failed", kind: "danger" },
   host_update: { label: "System packages upgraded", kind: "info" },
   host_reboot: { label: "Machine rebooted from the dashboard", kind: "warn" },
+  self_update_started: { label: "devbox update started from the dashboard", kind: "info" },
 };
 
 export function eventLabel(type: string): { label: string; kind: EventKind } {

@@ -76,6 +76,7 @@ import { createTmuxProbe } from "./tmux";
 import { barePath, buildTree, ghLister, giteaLister, sessionWorkdir } from "./tree";
 import { setUntrustedGitRoots } from "./safeGit";
 import { memoAsync, memoAsyncStrict } from "./cache";
+import { selfUpdateStatus, startSelfUpdate, type SelfUpdateDeps } from "./selfUpdate";
 import { buildUnpushedReport, unpushedOps } from "./unpushed";
 import { ApiErrorRetry, sweep429 } from "./apiErrorRetry";
 import { defaultProbe, sweepIdleSessions } from "./watchdog";
@@ -97,7 +98,8 @@ import { BaseBuilder, localImageDigest } from "./instabox/base";
 import { createStatusCache, killOrphan, reconcile } from "./instabox/reconcile";
 import { IBX_PATHS } from "./instabox/runOpts";
 import { readHostLoad } from "./placement";
-import { timeoutFor } from "./proc";
+import { run, timeoutFor } from "./proc";
+import { COMMIT } from "./version";
 import { createScheduler } from "./scheduler";
 import { ccStatus, dueForCheck, inWindow, resolveCcUpkeep, runCcUpkeep, type UpkeepDeps, type UpkeepResult } from "./ccUpkeep";
 import { beszelFrom, createHardware, loadMachines, sshArgv } from "./hardware";
@@ -703,6 +705,14 @@ const ccUpkeepRun = async (only?: string[]): Promise<UpkeepResult | null> => {
 // Sessions is opened. 60 s is a compromise: the cc version does not change within a minute, and after
 // a manual upkeep run we invalidate the cache anyway.
 const ccStatusCache = memoAsync(() => ccStatus(ccUpkeepDeps()), 60_000);
+// The deployed checkout is the one devd runs from (devd/src → repo root), same as COMMIT.
+const selfUpdateDeps: SelfUpdateDeps = {
+  run: (cmd, opts) => run(cmd, { timeoutMs: 30_000, ...opts }),
+  repoDir: join(import.meta.dir, "..", ".."),
+  runningCommit: COMMIT,
+};
+// Every status fetches origin; the cache keeps a polling dashboard from fetching every few seconds.
+const selfUpdateCache = memoAsync(() => selfUpdateStatus(selfUpdateDeps), 30_000);
 const launchStatusCaches = {
   codex: memoAsync(() => launchAgentStatus(ccUpkeepDeps(), "codex"), 60_000),
   grok: memoAsync(() => launchAgentStatus(ccUpkeepDeps(), "grok"), 60_000),
@@ -892,6 +902,10 @@ const apiDeps: ApiDeps = {
   },
   agentUpkeep,
   ccUpkeep: { status: () => ccStatusCache.get(), run: ccUpkeepRun },
+  selfUpdate: {
+    status: () => selfUpdateCache.get(),
+    run: async () => { const r = await startSelfUpdate(selfUpdateDeps); selfUpdateCache.invalidate(); return r; },
+  },
   accounts: {
     profiles: accountProfiles, leaseMaxAgeMs,
     // Same convention as leaseMaxAgeMs above — fresh config on EVERY request,

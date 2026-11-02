@@ -62,6 +62,7 @@ import { classifyClaudeState } from "./stats";
 import { isValidTmuxName, killSessionCmd, labelSetCmd, parseProbe, probeCmd, type TmuxSession } from "./tmux";
 import { sessionWorkdir, type TreeProject } from "./tree";
 import { COMMIT, VERSION } from "./version";
+import type { SelfUpdateStatus } from "./selfUpdate";
 import type { Decision } from "./criticGate";
 import {
   authStatus, codexLoginStart, codexLoginStatus, codexLogout, CLIPROXY_CALLBACK_PORT,
@@ -168,6 +169,9 @@ export interface ApiDeps { mgr: SessionManager; db: Database; cfg: DevConfig; ro
   // ccUpkeep status and manual trigger for the dashboard. `run` returns null when the job is already running.
   agentUpkeep?: { status: (provider: UpkeepProvider) => Promise<AgentUpkeepStatus>; run: (provider: UpkeepProvider, only?: string[]) => Promise<AgentUpkeepResult | null> };
   ccUpkeep?: { status: () => Promise<CcStatus>; run: (only?: string[]) => Promise<UpkeepResult | null> };
+  // "Update now": status of the server checkout vs origin/main and a manual start of devbox-update.service
+  // (the nightly unit). `run` returns null when an update is already running.
+  selfUpdate?: { status: () => Promise<SelfUpdateStatus>; run: () => Promise<{ ok: true } | null> };
   // Hardware tab: Beszel + host probe + borg + Uptime Kuma. Optional — without secrets
   // the page reports itself as not configured instead of devd crashing.
   hardware?: Hardware;
@@ -1983,6 +1987,23 @@ export function createApp(d: ApiDeps): Hono {
     if (body.session && !getSession(d.db,body.session)) return c.json({error:"Unknown session."},404);
     const result = await d.agentUpkeep.run(provider,body.session ? [body.session] : undefined);
     return result === null ? c.json({error:"An upkeep operation is already running."},409) : c.json(result);
+  });
+
+  app.get("/api/self-update", async (c) => {
+    if (!d.selfUpdate) return c.json({ error: "self-update is not available" }, 404);
+    return c.json(await d.selfUpdate.status());
+  });
+
+  // Answers as soon as the unit starts; the result shows up in GET /api/self-update. A devd
+  // restart during the update drops this connection's successors, not the update itself.
+  app.post("/api/self-update/run", async (c) => {
+    if (!d.selfUpdate) return c.json({ error: "self-update is not available" }, 404);
+    try {
+      const res = await d.selfUpdate.run();
+      if (res === null) return c.json({ error: "an update is already running" }, 409);
+      logEvent(d.db, null, "self_update_started", {});
+      return c.json(res, 202);
+    } catch (e) { return c.json({ error: (e as Error).message }, 500); }
   });
 
   app.get("/api/cc-upkeep", async (c) => {
