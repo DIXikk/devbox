@@ -379,6 +379,15 @@ export type SeriesRange = "1h" | "6h" | "24h" | "7d";
 export interface CreatedShare { id: string; url: string; expiresAt: number }
 export interface ActiveShare { id: string; session_id: string; name: string | null; created_at: number; expires_at: number }
 
+/** GET /api/self-update — see devd/src/selfUpdate.ts. */
+export interface SelfUpdateStatus {
+  running: string | null; deployed: string | null; latest: string | null;
+  behind: number; restart: boolean; infra: string[];
+  unit: UnitRun;
+  lastOutcome: { kind: string; commit?: string; reason?: string; ci?: string } | null;
+  fetchError: string | null;
+}
+
 export const api = {
   health: () => j<{ ok: boolean; version: string; commit: string | null }>("/api/health"),
   hardware: () => j<HardwareSnapshot>("/api/hardware"),
@@ -386,6 +395,8 @@ export const api = {
   runBackup: (id: string) => j<{ ok: true }>(`/api/hardware/${encodeURIComponent(id)}/backup/run`, { method: "POST" }),
   runUpdate: (id: string) => j<{ ok: true }>(`/api/hardware/${encodeURIComponent(id)}/update`, { method: "POST" }),
   rebootHost: (id: string) => j<{ ok: true }>(`/api/hardware/${encodeURIComponent(id)}/reboot`, { method: "POST" }),
+  selfUpdate: () => j<SelfUpdateStatus>("/api/self-update"),
+  runSelfUpdate: () => j<{ ok: true }>("/api/self-update/run", { method: "POST" }),
   live: () => j<LiveStats>("/api/stats/live"),
   resources: () => j<Resources>("/api/stats/resources"),
   totals: () => j<Totals>("/api/stats/totals"),

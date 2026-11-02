@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { FormDialog } from "../components/FormDialog";
+import { SelfUpdate } from "../components/SelfUpdate";
 import { api, type AccountView, type AuthProvider, type AuthStatus, type GiteaInstanceInfo } from "../api";
 import { ActionButton, AppPage, ConfirmButton, Section, SecretInput } from "../components/primitives";
 import { Button } from "@/components/ui/button";
@@ -422,6 +423,8 @@ export function Settings() {
           <Button variant="outline" size="sm" onClick={load}>Try again</Button>
         </div>
       )}
+
+      <SelfUpdate />
 
       <Section label="Runtime">
         <Card><CardContent className="grid gap-x-6 gap-y-5 p-4 sm:grid-cols-2 lg:grid-cols-4">
