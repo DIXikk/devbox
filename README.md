@@ -186,7 +186,7 @@ Full guides:
 
 - [docs/install.md](docs/install.md) — server install, vault, firewall, backups, monitoring, upgrades
 - [docs/mac.md](docs/mac.md) — Mac client: CLI, listener, notifications, SMB, Warp
-- [docs/browser.md](docs/browser.md) — working from the dashboard only (Windows, Linux, no Mac): files into sessions, copying out
+- [docs/browser.md](docs/browser.md) — working from the dashboard only (Windows, Linux, no Mac): files into sessions, copying out, Claude sign-in
 - [docs/ios.md](docs/ios.md) — building the iOS app, connecting it, push and Live Activities
 - [docs/configuration.md](docs/configuration.md) — environment variables, files, `secrets.json`, `config.json`
 - [SECURITY.md](SECURITY.md) — threat model; **read before giving agents real credentials**

@@ -69,6 +69,7 @@ import {
   authStatus, codexLoginStart, codexLoginStatus, codexLogout, CLIPROXY_CALLBACK_PORT,
   grokLoginStart, grokLoginStatus, proxyLoginStart, proxyLoginStatus, isProxyProvider,
   agyLoginStart, agyLoginCode, agyLoginStatus, agyLogout, isValidAgyCode,
+  claudeLoginStart, claudeLoginCode, claudeLoginStatus, isValidClaudeCode,
   type CodexAuthDeps,
 } from "./agentAuth";
 import type { CodexView } from "./codexPoller";
@@ -1319,6 +1320,36 @@ export function createApp(d: ApiDeps): Hono {
   app.post("/api/auth/antigravity/logout", async (c) => {
     const ca = needAuth(); if (!ca) return authMissing(c, "antigravity auth");
     try { await agyLogout(ca); return c.body(null, 204); }
+    catch (e) { return c.json({ error: (e as Error).message }, 502); }
+  });
+
+  // Claude Code: `claude auth login` with code paste (browser-only operators, no Mac — see
+  // claudeLoginStart). Operator addresses only: a session container could otherwise start a
+  // login and finish it with its own code, replacing the credentials every session shares.
+  const claudeLoginGate = (c: Context): Response | null => {
+    const addr = d.remoteAddr?.(c);
+    if (isApprovalAllowed(addr, d.sshApprovalAllowExtra ?? [])) return null;
+    console.warn(`claude login: denied (${c.req.method} ${c.req.path}) — address ${addr ?? "unknown"} is not in the allowlist`);
+    return c.json({ error: "this network address cannot sign in Claude" }, 403);
+  };
+  app.post("/api/auth/claude/login/start", async (c) => {
+    const denied = claudeLoginGate(c); if (denied) return denied;
+    const ca = needAuth(); if (!ca) return authMissing(c, "claude auth");
+    try { return c.json(await claudeLoginStart(ca)); }
+    catch (e) { return c.json({ error: (e as Error).message }, 502); }
+  });
+  app.post("/api/auth/claude/login/code", async (c) => {
+    const denied = claudeLoginGate(c); if (denied) return denied;
+    const body = (await c.req.json().catch(() => null)) as { code?: unknown } | null;
+    if (!isValidClaudeCode(body?.code)) return c.json({ error: "invalid authorization code" }, 400);
+    const ca = needAuth(); if (!ca) return authMissing(c, "claude auth");
+    try { await claudeLoginCode(ca, body.code); return c.body(null, 204); }
+    catch (e) { return c.json({ error: (e as Error).message }, 502); }
+  });
+  app.get("/api/auth/claude/login/status", async (c) => {
+    const denied = claudeLoginGate(c); if (denied) return denied;
+    const ca = needAuth(); if (!ca) return authMissing(c, "claude auth");
+    try { return c.json({ status: await claudeLoginStatus(ca) }); }
     catch (e) { return c.json({ error: (e as Error).message }, 502); }
   });
 

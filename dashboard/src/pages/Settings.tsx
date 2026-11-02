@@ -218,13 +218,20 @@ function UrlLoginRow({ label, loginLabel, status, start, pollStatus, onDone, onE
   );
 }
 
-/** Google OAuth without a browser on the server: the user opens the link, Google shows them
- *  an authorization code and it is pasted here (agy waits for it in the login container). */
-function CodeLoginRow({ label, loginLabel, status, start, submitCode, pollStatus, onDone, onError, onLogout }: {
+/** OAuth without a browser on the server: the user opens the link, the provider shows them
+ *  an authorization code and it is pasted here (the CLI waits for it in the login container).
+ *  Used for Antigravity (Google) and Claude Code (claude.ai). */
+function CodeLoginRow({ label, loginLabel, status, start, submitCode, pollStatus, onDone, onError, onLogout,
+  provider = "Google", account = "the Google account that has your subscription", note = `Already running ${label} sessions keep their previous sign-in until they restart.`,
+  relogin = false }: {
   label: string; loginLabel: string; status: AuthProvider;
   start: () => Promise<{ url: string }>; submitCode: (code: string) => Promise<void>;
   pollStatus: () => Promise<LoginPollStatus>; onDone: () => Promise<void>;
-  onError: (msg: string) => void; onLogout: () => Promise<void>;
+  onError: (msg: string) => void; onLogout?: () => Promise<void>;
+  /** Shown in "Open <provider> sign-in" and "the code <provider> shows you". */
+  provider?: string; account?: string; note?: string;
+  /** Offer signing in again while signed in (switching accounts) — for providers without a logout here. */
+  relogin?: boolean;
 }) {
   const login = useLoginDialog(start, pollStatus, onDone, onError);
   const [code, setCode] = useState("");
@@ -252,13 +259,14 @@ function CodeLoginRow({ label, loginLabel, status, start, submitCode, pollStatus
       <Badge variant={b.tone === "ok" ? "default" : "secondary"}>{b.text}</Badge>
       <span className="min-w-0 break-words text-sm text-muted-foreground">{status.detail}</span><span className="flex-1" />
       {!status.loggedIn && <Button size="sm" onClick={() => { reset(); void login.begin(); }}>{loginLabel}</Button>}
-      {status.loggedIn && <ActionButton size="sm" variant="ghost" onError={onError} onAction={async () => { await onLogout(); await onDone(); }}>Log out</ActionButton>}
-      <FormDialog open={login.open} onOpenChange={(next) => { if (!next) close(); }} title={loginLabel} description={`Connect ${label} with the Google account that has your subscription.`}>
+      {status.loggedIn && relogin && <Button size="sm" variant="ghost" onClick={() => { reset(); void login.begin(); }}>Sign in again</Button>}
+      {status.loggedIn && onLogout && <ActionButton size="sm" variant="ghost" onError={onError} onAction={async () => { await onLogout(); await onDone(); }}>Log out</ActionButton>}
+      <FormDialog open={login.open} onOpenChange={(next) => { if (!next) close(); }} title={loginLabel} description={`Connect ${label} with ${account}.`}>
         <div className="space-y-4">
           {!login.data && !login.error && <p role="status" className="text-sm text-muted-foreground">Preparing sign-in…</p>}
           {login.data && <>
-            <p className="text-sm">1. <a className="underline" href={login.data.url} target="_blank" rel="noreferrer">Open Google sign-in ↗</a></p>
-            <p className="text-sm">2. Paste the authorization code Google shows you:</p>
+            <p className="text-sm">1. <a className="underline" href={login.data.url} target="_blank" rel="noreferrer">Open {provider} sign-in ↗</a></p>
+            <p className="text-sm">2. Paste the authorization code {provider} shows you:</p>
             <form className="flex gap-2" onSubmit={handleSubmit}>
               <input className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 font-mono text-sm" value={code} onChange={(e) => setCode(e.target.value)} disabled={submit.phase !== "idle"} autoComplete="off" spellCheck={false} aria-label="Authorization code" />
               <Button type="submit" size="sm" disabled={!canSubmitCode(submit, code)}>{submit.phase === "submitting" ? "Submitting…" : "Submit"}</Button>
@@ -267,7 +275,7 @@ function CodeLoginRow({ label, loginLabel, status, start, submitCode, pollStatus
           </>}
           {submit.error && <p role="alert" className="text-sm text-destructive">{submit.error}</p>}
           {login.error && <p role="alert" className="text-sm text-destructive">{login.error}</p>}
-          <p className="text-xs text-muted-foreground">Already running Antigravity sessions keep their previous sign-in until they restart.</p>
+          <p className="text-xs text-muted-foreground">{note}</p>
           <div className="flex justify-end"><Button variant="outline" onClick={close}>Close</Button></div>
         </div>
       </FormDialog>
@@ -292,17 +300,16 @@ export function Accounts() {
   async function refresh() { try { setStatus(await api.auth()); } catch (e) { setErr((e as Error).message); } }
   useEffect(() => { refresh(); }, []);
 
-  const claudeB = providerBadge(status?.claude ?? { loggedIn: false });
-
   return (
     <div className="flex flex-col gap-4">
       <Card><CardContent className="flex flex-col gap-2 p-4">
-        {/* Claude has no action: it logs in outside the dashboard (account pool), only the status is here. */}
-        <div className="flex flex-wrap items-center gap-3 border-b pb-3">
-          <span className="w-40 shrink-0 text-sm font-medium">Claude</span>
-          <Badge variant={claudeB.tone === "ok" ? "default" : "secondary"}>{claudeB.text}</Badge>
-          <span className="text-sm text-muted-foreground">{status?.claude.detail ?? "…"}</span>
-        </div>
+        {/* Claude: `claude auth login` into the shared claude-home (the default account). Extra
+            accounts for automatic selection are added in the account pool above. */}
+        <CodeLoginRow label="Claude" loginLabel="Sign in with Claude" status={status?.claude ?? NOT_LOGGED_IN}
+          start={api.claudeLoginStart} submitCode={api.claudeLoginCode} pollStatus={api.claudeLoginStatus}
+          onDone={refresh} onError={setErr} provider="Claude" account="the Claude account that has your subscription"
+          note="Use a browser signed in to the right Claude account (or a private window). Running Claude sessions pick up the new sign-in on their next start."
+          relogin />
 
         <DeviceLoginRow label="Codex CLI" loginLabel="Log in with ChatGPT" status={status?.codex ?? NOT_LOGGED_IN}
           start={api.codexLoginStart} pollStatus={api.codexLoginStatus} onDone={refresh} onError={setErr}
