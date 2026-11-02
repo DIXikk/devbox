@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { redactArgv, run, timeoutFor, type RunResult } from "./proc";
 
@@ -268,12 +268,39 @@ export async function worktreeBranch(dir: string): Promise<string | null> {
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
 }
 
+/** Worktrees that agents created INSIDE a session (`/workspace/.worktrees/<x>`): git records them with
+ *  the container path, which prune on the host judges dead. Each such registration is matched to the
+ *  session directory that really holds it — the candidate's `.git` must point back at the same
+ *  registration, so a stray `/workspace` path never adopts a worktree of another session. */
+function nestedWorktrees(bare: string, sessions: string[]): string[] {
+  const root = join(bare, "worktrees");
+  let ids: string[];
+  try { ids = readdirSync(root); } catch { return []; }
+  const found: string[] = [];
+  for (const id of ids) {
+    const admin = join(root, id);
+    let gitdir: string;
+    try { gitdir = readFileSync(join(admin, "gitdir"), "utf8").trim(); } catch { continue; }
+    if (!gitdir.startsWith("/workspace/")) continue;
+    const rest = dirname(gitdir).slice("/workspace".length);
+    for (const s of sessions) {
+      const candidate = join(s, rest);
+      try {
+        const back = readFileSync(join(candidate, ".git"), "utf8").trim().replace(/^gitdir: /, "");
+        // realpath: git writes the canonical path (on a mac /var is a symlink to /private/var).
+        if (realpathSync(back) === realpathSync(admin)) { found.push(candidate); break; }
+      } catch { /* not in this session */ }
+    }
+  }
+  return found;
+}
+
 /** Aligns the worktree registrations in the bare clone with the host paths. Repairs the direction
  *  that `git worktree prune` reads: `<bare>/worktrees/<id>/gitdir`. Non-critical — failure
  *  is only logged (`repair` returns a nonzero code even when ONE of the paths cannot be repaired).
  *  Paths without `.git` are skipped: they do not represent any live session. */
 export async function repairWorktrees(bare: string, paths: string[]): Promise<void> {
-  const live = paths.filter((p) => existsSync(join(p, ".git")));
+  const live = [...paths, ...nestedWorktrees(bare, paths)].filter((p) => existsSync(join(p, ".git")));
   if (!live.length) return;
   const r = await sh(bare, "git", "-c", `safe.directory=${bare}`, "worktree", "repair", ...live);
   if (r.code !== 0) console.error(`git worktree repair in ${bare} partially failed: ${r.stderr.trim()}`);

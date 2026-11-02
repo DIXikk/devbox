@@ -334,6 +334,28 @@ test("prune when creating another session does not unregister a live worktree wi
   expect(readFileSync(join(admin, "gitdir"), "utf8").trim()).toBe(join(realpathSync(first), ".git"));
 });
 
+// Agents create their own worktrees INSIDE a session (`/workspace/.worktrees/<x>`), so git records the
+// container path. Repairing only the session roots left these to prune, which unregistered them
+// from a live session (seen on chwdirections: ios-app, ios-ux, wp3-base all "prunable").
+test("prune when creating another session does not unregister a worktree nested in a live session", async () => {
+  const { root, url } = makeOrigin();
+  const bare = join(root, "app.git");
+  await cloneBare(url, bare);
+  await trackRemote(bare);
+  const first = join(root, "_sessions", "dev-p-app");
+  await addWorktree(bare, first, null, await defaultBranch(bare));
+  const nested = join(first, ".worktrees", "feat");
+  sh(first, "git", "worktree", "add", "-b", "feat", nested);
+  const admin = join(bare, "worktrees", "feat");
+  writeFileSync(join(admin, "gitdir"), "/workspace/.worktrees/feat/.git\n");   // as the container wrote it
+
+  const second = join(root, "_sessions", "dev-p-app-2");
+  await addWorktree(bare, second, "session/app-2", await defaultBranch(bare), [first]);
+
+  expect(existsSync(admin)).toBe(true);
+  expect(readFileSync(join(admin, "gitdir"), "utf8").trim()).toBe(join(realpathSync(nested), ".git"));
+});
+
 // Second layer: even if the registration disappeared anyway (old state on disk, manual intervention),
 // the container must not start on a dead git. ensureWorktree revives it, without touching
 // the files — the session's uncommitted work is the only irreplaceable thing in that directory.
