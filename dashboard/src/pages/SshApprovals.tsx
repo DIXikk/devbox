@@ -437,6 +437,8 @@ export function SshApprovals() {
         </Section>
       )}
 
+      <ScopeGrantsSection now={now} />
+
       {past.length > 0 && (
         <Section label="Recent history" meta={`${past.length}`}>
           <div className="space-y-3">
@@ -457,8 +459,6 @@ export function SshApprovals() {
           </div>
         </Section>
       )}
-
-      <ScopeGrantsSection now={now} />
 
       <ServerConfigSection />
     </AppPage>
