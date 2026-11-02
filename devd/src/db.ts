@@ -246,6 +246,15 @@ export function openDb(path: string): Database {
   if (!(db.query("PRAGMA table_info(ssh_approvals)").all() as { name: string }[]).some((c) => c.name === "server")) {
     db.run("ALTER TABLE ssh_approvals ADD COLUMN server TEXT");
   }
+  // A key granted to many sessions at once (see sshScopeGrants.ts): every session, a folder, a
+  // project or one repo. NULL in folder/project/repo = "any". Rows are never deleted — revoked_at
+  // ends one (revocation or the reaper after grant_until), so the audit trail stays.
+  db.run(`CREATE TABLE IF NOT EXISTS ssh_scope_grants (
+    id TEXT PRIMARY KEY, title TEXT NOT NULL,
+    folder TEXT, project TEXT, repo TEXT,
+    created_at INTEGER NOT NULL, created_by TEXT NOT NULL,
+    grant_until INTEGER, grant_permanent INTEGER NOT NULL DEFAULT 0 CHECK (grant_permanent IN (0, 1)),
+    revoked_at INTEGER)`);
   db.run(`CREATE TABLE IF NOT EXISTS critic_reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
     round INTEGER NOT NULL, verdict TEXT NOT NULL, findings TEXT NOT NULL,

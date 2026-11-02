@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { keyCovered } from "./sshScopeGrants";
 import type { SshAgents } from "./sshAgent";
 
 /** 90 s: how long `srv` waits for a human decision before giving up. */
@@ -206,7 +207,7 @@ export async function reapExpiredGrants(
 ): Promise<void> {
   for (const g of expiredGrants(db, now)) {
     try {
-      if (g.session_id && !liveKeyGrant(db, g.session_id, g.title, now)) {
+      if (g.session_id && !keyCovered(db, g.session_id, g.title, now)) {
         await sshAgents.kill(g.session_id, g.title);
       }
       revokeGrant(db, g.id);

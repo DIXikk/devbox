@@ -1,6 +1,6 @@
-import { KeyRound, ShieldCheck, Clock3, History, Check, X, Ban } from "lucide-react";
+import { KeyRound, ShieldCheck, Clock3, History, Check, X, Ban, Users } from "lucide-react";
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
-import { api, type SshApproval, type SshKey } from "../api";
+import { api, type SshApproval, type SshKey, type SshScopeGrant, type TreeProject } from "../api";
 import { AppPage, ActionButton, ConfirmButton, EmptyState, Section, StatusDot } from "../components/primitives";
 import { FormDialog } from "../components/FormDialog";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { agoLabel } from "../format";
 import { useNow } from "../store";
-import { actionErrorMessage, GRANT_MINUTE_PRESETS, maxGrantMinutes, parseGrantMinutes, sshTargetLabel } from "../sshApprovalsView";
+import { actionErrorMessage, GRANT_MINUTE_PRESETS, maxGrantMinutes, parseGrantMinutes, scopeGrantLabel, scopeOptions, sshTargetLabel } from "../sshApprovalsView";
 import {
   addSshServer, cloneConfig, mergeSshServers, removeSshServer, sshServerIssues, updateSshServer,
   validateConfig, type DevConfig, type SshServer,
@@ -80,6 +80,107 @@ function ApprovalActions({ id, busy, act }: {
         <Button className="min-h-11 text-destructive" variant="ghost" size="sm" disabled={busy} onClick={() => act(id, () => api.sshDeny(id))}><X className="size-4" aria-hidden="true" />Deny</Button>
       </div>
     </div>
+  );
+}
+
+const SELECT_CLASS = "h-11 min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50";
+
+/** A key allowed up front for every session, a folder, a project or one repo — requests from
+ *  sessions in scope then get the key without asking (shared sessions still ask). */
+function ScopeGrantsSection({ now }: { now: number }) {
+  const keyId = useId(); const scopeId = useId(); const durationId = useId(); const minutesId = useId();
+  const [grants, setGrants] = useState<SshScopeGrant[]>([]);
+  const [keys, setKeys] = useState<SshKey[]>([]);
+  const [tree, setTree] = useState<TreeProject[]>([]);
+  const [key, setKey] = useState("");
+  const [scope, setScope] = useState("all");
+  const [duration, setDuration] = useState("60");
+  const [customMinutes, setCustomMinutes] = useState("60");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try { setGrants(await api.sshScopeGrants()); } catch (e) { setErr((e as Error).message); }
+  }
+  useEffect(() => {
+    load();
+    api.sshKeys().then((r) => setKeys(r.keys)).catch((e) => setErr((e as Error).message));
+    api.tree().then(setTree).catch(() => {});
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const options = useMemo(() => scopeOptions(tree), [tree]);
+  const permanent = duration === "permanent";
+  const minutes = permanent ? null : parseGrantMinutes(duration === "custom" ? customMinutes : duration);
+  const chosen = options.find((o) => o.value === scope);
+  const ready = !!key && !!chosen && (permanent || minutes !== null);
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true); setErr(null);
+    try { await fn(); } catch (e) { setErr(actionErrorMessage(e)); } finally { await load(); setBusy(false); }
+  }
+
+  return (
+    <Section label="Access for many sessions" meta={grants.length ? `${grants.length}` : undefined}>
+      <Card className="shadow-none"><CardContent className="space-y-4 p-4">
+        <p className="text-sm text-muted-foreground">
+          Allow a key for every session in a scope. Their requests get the key without asking; a shared session still asks.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={keyId} className="text-xs text-muted-foreground">Key</label>
+            <select id={keyId} className={SELECT_CLASS} value={key} disabled={busy} onChange={(e) => setKey(e.target.value)}>
+              <option value="">Choose a key…</option>
+              {keys.map((k) => <option key={k.title} value={k.title}>{k.title}</option>)}
+            </select>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={scopeId} className="text-xs text-muted-foreground">Sessions</label>
+            <select id={scopeId} className={SELECT_CLASS} value={scope} disabled={busy} onChange={(e) => setScope(e.target.value)}>
+              {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={durationId} className="text-xs text-muted-foreground">Duration</label>
+            <div className="flex items-center gap-2">
+              <select id={durationId} className={SELECT_CLASS} value={duration} disabled={busy} onChange={(e) => setDuration(e.target.value)}>
+                {GRANT_MINUTE_PRESETS.map((v) => <option key={v} value={v}>{v} min</option>)}
+                <option value="custom">Custom</option>
+                <option value="permanent">Permanent</option>
+              </select>
+              {duration === "custom" && (
+                <Input id={minutesId} aria-label="Minutes" className="h-11 w-24" type="number" min={1} max={maxGrantMinutes()} step={1}
+                  inputMode="numeric" value={customMinutes} disabled={busy} onChange={(e) => setCustomMinutes(e.target.value)}
+                  aria-invalid={minutes === null} />
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button className="min-h-11" size="sm" disabled={busy || !ready} onClick={() => chosen && run(() =>
+            api.sshCreateScopeGrant(key, chosen.scope, permanent ? 0 : minutes!, permanent))}>
+            <Users className="size-4" aria-hidden="true" />
+            {permanent ? "Allow permanently" : minutes === null ? "Allow" : `Allow for ${minutes} min`}
+          </Button>
+          {err && <span role="alert" className="text-xs font-medium text-destructive">{err}</span>}
+        </div>
+        {grants.length > 0 && (
+          <div className="space-y-2 border-t pt-4">
+            {grants.map((g) => (
+              <div key={g.id} className="flex flex-wrap items-center gap-2">
+                <ShieldCheck className="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
+                <span className="text-sm font-semibold">{g.title}</span>
+                <span className="text-xs text-muted-foreground">{scopeGrantLabel(g)}</span>
+                <span className="text-xs text-muted-foreground">{g.grant_permanent ? "Permanent" : `${Math.max(0, Math.ceil(((g.grant_until ?? 0) - now) / 60000))} min remaining`}</span>
+                <Button variant="outline" size="sm" className="ml-auto min-h-11 text-destructive" disabled={busy}
+                  onClick={() => run(() => api.sshRevokeScopeGrant(g.id))}><Ban className="size-4" aria-hidden="true" />Revoke</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent></Card>
+    </Section>
   );
 }
 
@@ -356,6 +457,8 @@ export function SshApprovals() {
           </div>
         </Section>
       )}
+
+      <ScopeGrantsSection now={now} />
 
       <ServerConfigSection />
     </AppPage>

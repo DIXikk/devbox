@@ -33,6 +33,8 @@ const LABELS: Record<string, { label: string; kind: EventKind }> = {
   ssh_key_access: { label: "SSH key handed to ssh-agent", kind: "ok" },
   ssh_key_bypass: { label: "SSH gate bypassed (break-glass)", kind: "danger" },
   ssh_grant_revoked: { label: "SSH grant revoked", kind: "info" },
+  ssh_scope_granted: { label: "SSH key allowed for many sessions", kind: "warn" },
+  ssh_scope_revoked: { label: "SSH key for many sessions revoked", kind: "info" },
   clipboard_access: { label: "Clipboard access", kind: "info" },
   critic_pass: { label: "Critic approved the work", kind: "ok" },
   critic_block: { label: "Critic sent the work back for fixes", kind: "warn" },
