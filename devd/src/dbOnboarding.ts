@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { MARIA_STORED_OBJECT_PROFILE } from "./mariaDbMigrationProfile";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import type { ProvisionInput } from "./dbProvision";
@@ -14,6 +15,7 @@ export interface Candidate { id: string; instance?: string; server: string; cont
 export interface OnboardingPlan {
   requestId: number; entry: DbEntry; input: ProvisionInput; server: ServerRef; trustedServer: ServerRef;
   requestedScope?: DbRequestScope;
+  mariaMigrationProfile?: typeof MARIA_STORED_OBJECT_PROFILE;
   previousEntry?: DbEntry | null; write: boolean; migrations: boolean; changes: string[]; fingerprint: string;
 }
 export interface OnboardingHost {
@@ -213,6 +215,7 @@ export function createDbOnboarding(d: OnboardingDeps) {
         ...(migrations ? { migrationUser: input.migrationUser, migrationOpItem: input.migrationOpItem } : {}),
         tunnelUser: existing?.tunnelUser || "devbox-db-tunnel", tunnelKey: existing?.tunnelKey || trustedServer!.key };
       const base: Omit<OnboardingPlan, "fingerprint"> = { requestId: id, requestedScope: row.requested_scope ?? "read", entry, input, trustedServer: { ...trustedServer! }, server: effectiveServer(entry, trustedServer!), previousEntry: existing ?? null, write, migrations,
+        ...(entry.engine === "mariadb" && migrations ? { mariaMigrationProfile: MARIA_STORED_OBJECT_PROFILE } : {}),
         changes: [
           ...(existing ? [`Extend/verify catalog access for ${name}; existing grants are preserved. New SQL permissions still require separate approvals.`] : []),
           `Verify ${picked!.name} / ${picked!.environment ?? "unknown environment"} on ${serverName}; Docker ${input.container}, database ${db}.`,
@@ -221,7 +224,7 @@ export function createDbOnboarding(d: OnboardingDeps) {
           `Create a loopback-only relay on remote port ${hostPort}; no database restart.`,
           `Store credentials in 1Password and provision SELECT-only role '${input.roUser}'.`,
           ...(write ? [`Provision DML role '${input.rwUser}'; every SQL proposal requires separate approval.`] : []),
-          ...(migrations ? [`Provision host-only migration role '${input.migrationUser}' scoped to this database; each exact migration requires separate approval.`] : []),
+          ...(migrations ? [`Provision host-only migration role '${input.migrationUser}' scoped to this database${entry.engine === 'mariadb' ? ', including TRIGGER, CREATE ROUTINE, ALTER ROUTINE and EXECUTE' : ''}; each exact migration requires separate approval.`] : []),
           "Verify tunnel login and database role permissions before saving catalog and project access.",
         ] };
       const plan = { ...base, fingerprint: hash(base) };
@@ -262,13 +265,14 @@ export function createDbOnboarding(d: OnboardingDeps) {
       ...(write ? { rwUser: input.rwUser, rwOpItem: input.rwOpItem } : {}),
       ...(migrations ? { migrationUser: input.migrationUser, migrationOpItem: input.migrationOpItem } : {}) };
     const base: Omit<OnboardingPlan, "fingerprint"> = { requestId: id, requestedScope: row.requested_scope ?? "read", entry, input, trustedServer: { ...trustedServer }, server: { ...trustedServer }, previousEntry: existing ?? null, write, migrations,
+      ...(entry.engine === "mariadb" && migrations ? { mariaMigrationProfile: MARIA_STORED_OBJECT_PROFILE } : {}),
       changes: [
         ...(existing ? [`Extend/verify catalog access for ${name}; existing grants are preserved. New SQL permissions still require separate approvals.`] : []),
         `Direct MariaDB ${trustedServer.host}:${trustedServer.port} (server '${serverName}', no SSH/Docker), database ${db}.`,
         `Log in once with the admin account from 1Password '${trustedServer.adminOpItem ?? "?"}'; the admin password is never stored in the plan.`,
         `Store credentials in 1Password and provision SELECT-only account '${input.roUser}' bound to the devd egress IP.`,
         ...(write ? [`Provision DML account '${input.rwUser}' bound to the devd egress IP; every SQL proposal requires separate approval.`] : []),
-        ...(migrations ? [`Provision migration account '${input.migrationUser}' (DDL on ${db} only) bound to the devd egress IP; each exact migration requires separate approval.`] : []),
+        ...(migrations ? [`Provision migration account '${input.migrationUser}' (DDL on ${db} only, including TRIGGER, CREATE ROUTINE, ALTER ROUTINE and EXECUTE) bound to the devd egress IP; each exact migration requires separate approval.`] : []),
         `Sessions connect through the devd proxy and a loopback relay on port ${hostPort}. The upstream link has no TLS (server does not offer it).`,
         "Verify each account's login and exact grants before saving catalog and project access.",
       ] };

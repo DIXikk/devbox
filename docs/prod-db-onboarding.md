@@ -191,3 +191,13 @@ and atomic identification of the managed SSH account for a retry after an interr
 The preflight now also verifies all required host commands and the proxyd version.
 The separate connector is committed as `1fdabf023196d6171e1d5ca47f81f98bc35b362b`;
 neither a global installation nor a publication of the connector was performed.
+
+## MariaDB stored-object migration privileges
+
+The migration profile includes database-scoped `TRIGGER`, `CREATE ROUTINE`,
+`ALTER ROUTINE` and `EXECUTE` so reviewed migrations can install guards and
+create, call and remove preflight procedures. Read-only and DML profiles do not
+receive these privileges. No global grant or grant option is added. The setup
+plan names the extra privileges before approval; each SQL proposal still needs
+its own approval. Existing approved access plans do not change on deployment: a
+new approved host setup must provision and verify the updated role profile.

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createConnection } from "mysql2/promise";
 import type { OnboardingPlan } from "./dbOnboarding";
+import { MARIA_STORED_OBJECT_PROFILE } from "./mariaDbMigrationProfile";
 import { mysqlPasswordHash } from "./mysqlAuth";
 const q = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 const lit = (s: string) => "'" + s.replaceAll("\\", "\\\\").replaceAll("'", "''") + "'";
@@ -34,7 +35,12 @@ export function mariaInspectionCommand(p: OnboardingPlan): string {
 export function mariaPrivileges(p: OnboardingPlan, user: string): string[] {
   if (user === p.entry.roUser) return ["SELECT"];
   const dml = ["SELECT", "INSERT", "UPDATE", "DELETE"];
-  return user === p.entry.migrationUser ? [...dml, "CREATE", "DROP", "REFERENCES", "INDEX", "ALTER", "CREATE VIEW", "SHOW VIEW"] : dml;
+  if (user !== p.entry.migrationUser) return dml;
+  const ddl = [...dml, "CREATE", "DROP", "REFERENCES", "INDEX", "ALTER", "CREATE VIEW", "SHOW VIEW"];
+  // Older approved plans retain their exact profile on verification/resume.
+  if (p.mariaMigrationProfile === undefined) return ddl;
+  if (p.mariaMigrationProfile !== MARIA_STORED_OBJECT_PROFILE) throw Error("unsupported MariaDB migration profile");
+  return [...ddl, "TRIGGER", "CREATE ROUTINE", "ALTER ROUTINE", "EXECUTE"];
 }
 /** Account DDL implicitly commits. Hash + host ledger identify retry ownership.
  * `accountHost` is '%' behind the loopback relay; a direct (internet-reachable)
