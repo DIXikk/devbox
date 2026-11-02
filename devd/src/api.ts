@@ -303,11 +303,12 @@ export function createApp(d: ApiDeps): Hono {
   // of raw JSON every minute (gzip ~100 kB).
   app.use("/api/*", compress());
   // CSRF from previews (p0…p9.<DEVD_PREVIEW_DOMAIN>): foreign Origin on mutations and WS → 403, body from a browser
-  // only JSON (415). Exceptions to the body-type rule: backup upload and passthrough to CLIProxyAPI.
+  // only JSON (415). Exceptions to the body-type rule: backup upload, file upload into a session
+  // (raw file bytes) and passthrough to CLIProxyAPI. Origin is still checked for all of them.
   // Like compress, MUST come before the first /api route.
   const allowedOrigins = d.dashboardOrigins ?? dashboardOrigins();
   app.use("/api/*", originGuard(allowedOrigins,
-    (path) => path === "/api/restore" || path.startsWith("/api/cliproxy/")));
+    (path) => path === "/api/restore" || /^\/api\/sessions\/[^/]+\/upload$/.test(path) || path.startsWith("/api/cliproxy/")));
   // OTel (/v1/metrics): exporters send no Origin, they pass; forged metrics from a preview do not.
   // The body type is not checked — OTLP may also be protobuf.
   app.use("/v1/*", originGuard(allowedOrigins, () => true));

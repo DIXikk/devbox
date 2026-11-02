@@ -102,6 +102,19 @@ test("API: /api/restore (backup upload) is exempt from the Content-Type rule, bu
   expect(foreign.status).toBe(403);
 });
 
+test("API: session file upload is exempt from the Content-Type rule, but Origin is checked", async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const headers = { "content-type": "application/octet-stream", "x-devbox-filename": "a.png" };
+  const ok = await call("/api/sessions/dev-a-b/upload", { method: "POST", headers: { origin: DASH, ...headers }, body: bytes });
+  expect(ok.status).not.toBe(415);   // reaches the route (which then applies its own address gate)
+  const foreign = await call("/api/sessions/dev-a-b/upload", { method: "POST", headers: { origin: PREVIEW, ...headers }, body: bytes });
+  expect(foreign.status).toBe(403);
+  expect(((await foreign.json()) as { error: string }).error).toBe("forbidden");
+  // only the exact route — a lookalike path keeps the JSON rule
+  const other = await call("/api/sessions/dev-a-b/upload/x", { method: "POST", headers: { origin: DASH, ...headers }, body: bytes });
+  expect(other.status).toBe(415);
+});
+
 test("stateChangingGetAllowed: same-site/cross-site and a foreign Origin → rejected; without Sec-Fetch-* or same-origin passes", () => {
   expect(stateChangingGetAllowed(req("GET", { "sec-fetch-site": "same-site" }), ALLOWED).ok).toBe(false);
   expect(stateChangingGetAllowed(req("GET", { "sec-fetch-site": "cross-site" }), ALLOWED).ok).toBe(false);
