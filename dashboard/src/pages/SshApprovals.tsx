@@ -418,25 +418,6 @@ export function SshApprovals() {
         </div>
       </Section>
 
-      {grants.length > 0 && (
-        <Section label="Active access" meta={`${grants.length}`}>
-          <div className="space-y-3">
-            {grants.map((g) => (
-              <Card key={g.id} className="border-emerald-500/20 shadow-none">
-                <CardContent className="flex flex-wrap items-center gap-2 p-4">
-                  <ShieldCheck className="size-5 shrink-0 text-emerald-600" aria-hidden="true" /><span className="text-sm font-semibold">{g.title}</span>
-                  <span className="text-xs text-muted-foreground">{g.project && g.repo ? `${g.project}/${g.repo}` : g.session_id ?? ""}</span>
-                  <span className="text-xs text-muted-foreground">{sshTargetLabel(g)}</span>
-                  <span className="text-xs text-muted-foreground">{g.grant_permanent ? "Permanent" : `${Math.max(0, Math.ceil(((g.grant_until ?? 0) - now) / 60000))} min remaining`}</span>
-                  <Button variant="outline" size="sm" className="ml-auto min-h-11 text-destructive" disabled={busy === g.id}
-                    onClick={() => act(g.id, () => api.sshRevokeGrant(g.id))}><Ban className="size-4" aria-hidden="true" />Revoke</Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </Section>
-      )}
-
       <ScopeGrantsSection now={now} />
 
       {past.length > 0 && (
@@ -461,6 +442,25 @@ export function SshApprovals() {
       )}
 
       <ServerConfigSection />
+
+      {grants.length > 0 && (
+        <Section label="Active access" meta={`${grants.length}`}>
+          <div className="space-y-3">
+            {grants.map((g) => (
+              <Card key={g.id} className="border-emerald-500/20 shadow-none">
+                <CardContent className="flex flex-wrap items-center gap-2 p-4">
+                  <ShieldCheck className="size-5 shrink-0 text-emerald-600" aria-hidden="true" /><span className="text-sm font-semibold">{g.title}</span>
+                  <span className="text-xs text-muted-foreground">{g.project && g.repo ? `${g.project}/${g.repo}` : g.session_id ?? ""}</span>
+                  <span className="text-xs text-muted-foreground">{sshTargetLabel(g)}</span>
+                  <span className="text-xs text-muted-foreground">{g.grant_permanent ? "Permanent" : `${Math.max(0, Math.ceil(((g.grant_until ?? 0) - now) / 60000))} min remaining`}</span>
+                  <Button variant="outline" size="sm" className="ml-auto min-h-11 text-destructive" disabled={busy === g.id}
+                    onClick={() => act(g.id, () => api.sshRevokeGrant(g.id))}><Ban className="size-4" aria-hidden="true" />Revoke</Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </Section>
+      )}
     </AppPage>
   );
 }
