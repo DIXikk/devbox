@@ -1,0 +1,68 @@
+import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// tools/privacy-check.py against a throwaway repository and an invented deny-list.
+const SCRIPT = join(import.meta.dir, "privacy-check.py");
+const DENYLIST = ["# test list", "secretclient", "10\\.9\\.8\\.", "!github\\.com/secretclient/public-repo"].join("\n");
+
+function repo(files: Record<string, string | Uint8Array>, author = "Pat <pat@example.com>") {
+  const dir = mkdtempSync(join(tmpdir(), "privacy-check-"));
+  const git = (...args: string[]) => {
+    const r = Bun.spawnSync(["git", ...args], { cwd: dir, stderr: "pipe" });
+    if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+    return r.stdout.toString().trim();
+  };
+  git("init", "-q", "-b", "main");
+  git("-c", "user.name=Base", "-c", "user.email=base@example.com", "commit", "-q", "--allow-empty", "-m", "base");
+  const base = git("rev-parse", "HEAD");
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(dir, path, ".."), { recursive: true });
+    writeFileSync(join(dir, path), content);
+  }
+  git("add", "-A");
+  const [name, email] = author.replace(">", "").split(" <");
+  git("-c", `user.name=${name}`, "-c", `user.email=${email}`, "commit", "-q", "-m", "change");
+  return { dir, range: `${base}..HEAD` };
+}
+
+function check(dir: string, range: string, denylist = DENYLIST) {
+  const r = Bun.spawnSync(["python3", SCRIPT, range], { cwd: dir, env: { ...process.env, DENYLIST: denylist }, stderr: "pipe" });
+  return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
+}
+
+test("a clean tree and clean commits pass", () => {
+  const { dir, range } = repo({ "README.md": "hello\n" });
+  expect(check(dir, range).code).toBe(0);
+});
+
+test("a deny-listed term in a file fails with file:line, but the output never repeats the term", () => {
+  const { dir, range } = repo({ "docs/a.md": "line one\nwe deployed for SecretClient today\n" });
+  const r = check(dir, range);
+  expect(r.code).toBe(1);
+  expect(r.out).toContain("docs/a.md:2: matches pattern #1");
+  expect(r.out.toLowerCase()).not.toContain("secretclient");
+});
+
+test("an allowed occurrence passes, but only that occurrence on the line", () => {
+  expect(check(...Object.values(repo({ "a.md": "see https://github.com/secretclient/public-repo\n" })) as [string, string]).code).toBe(0);
+  const r = check(...Object.values(repo({ "a.md": "https://github.com/secretclient/public-repo and secretclient\n" })) as [string, string]);
+  expect(r.code).toBe(1);
+});
+
+test("paths, binary strings and commit authors are checked too", () => {
+  expect(check(...Object.values(repo({ "secretclient/notes.txt": "x\n" })) as [string, string]).out).toContain("path matches pattern #1");
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, ...new TextEncoder().encode("host 10.9.8.7 inside"), 0]);
+  expect(check(...Object.values(repo({ "shot.png": png })) as [string, string]).out).toContain("shot.png: binary content matches pattern #2");
+  const r = check(...Object.values(repo({ "a.md": "x\n" }, "Someone <someone@secretclient.example>")) as [string, string]);
+  expect(r.code).toBe(1);
+  expect(r.out).toMatch(/commit [0-9a-f]{12}: author matches pattern #1/);
+});
+
+test("without a deny-list (fork pull request) the check is skipped, not failed", () => {
+  const { dir, range } = repo({ "a.md": "secretclient\n" });
+  const r = check(dir, range, "");
+  expect(r.code).toBe(0);
+  expect(r.out).toContain("skipped");
+});

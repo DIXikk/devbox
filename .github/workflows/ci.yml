@@ -68,6 +68,22 @@ jobs:
       - name: Dashboard build
         run: bun run build:dashboard
 
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Private names, hosts and addresses must not reach the public repository. The
+      # pattern list is a repository secret (it is private itself); forks get no secrets,
+      # so their pull requests skip this and the push to main is checked instead. The
+      # script reports only file:line and a pattern number, never the matched text.
+      - name: deny-list (tree, paths, binary strings, commits)
+        env:
+          DENYLIST: ${{ secrets.OSS_DENYLIST }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: python3 tools/privacy-check.py "$RANGE"
+
   secrets:
     runs-on: ubuntu-latest
     steps:
