@@ -51,3 +51,12 @@ export async function uploadToSession(sessionId: string, file: File, name: strin
   if (!r.ok || !body.path) throw new Error(body.error ?? `HTTP ${r.status}`);
   return body.path;
 }
+
+/** Ctrl+V on Windows/Linux. xterm.js turns it into the control character ^V (sent to tmux, where
+ *  the C-v binding asks the mac listener for the clipboard) and cancels the key event, so the
+ *  browser never fires `paste` and a screenshot never reaches the upload. In the dashboard
+ *  terminal Ctrl+V is therefore left to the browser as a paste — files then go to the upload,
+ *  text to xterm.js as usual. ⌘V on a Mac is not affected (xterm.js does not intercept it). */
+export function isPasteShortcut(ev: { type: string; key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean }): boolean {
+  return ev.type === "keydown" && ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.key.toLowerCase() === "v";
+}

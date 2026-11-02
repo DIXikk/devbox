@@ -3,7 +3,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { encodeBottom, encodeInput, encodeResize, encodeScroll, encodeUnlock, KEY_BAR, KEY_SEQ, terminalWsUrl, wheelSteps } from "../terminalProto";
-import { filesFrom, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "../terminalUpload";
+import { filesFrom, isPasteShortcut, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "../terminalUpload";
 import { decodeOsc52, isUserInitiated, preview, writeClipboard } from "../terminalClipboard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -135,6 +135,9 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
       void uploadFilesRef.current(files);
     };
     if (canUpload) {
+      // Ctrl+V → let the browser paste (see isPasteShortcut); returning false stops xterm.js from
+      // sending ^V and from cancelling the event.
+      term.attachCustomKeyEventHandler((ev) => !isPasteShortcut(ev));
       el.addEventListener("paste", onPaste, true);
       el.addEventListener("dragover", onDragOver);
       el.addEventListener("drop", onDrop);
