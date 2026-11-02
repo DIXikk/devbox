@@ -22,7 +22,7 @@ import { getOperation, listOperations, proposeOperation, setOperationStatus } fr
 import type { Database } from "bun:sqlite";
 import { createBridge, terminalGuard, terminalTarget, type Bridge, type SpawnPty } from "./terminal";
 import { execInContainer } from "./docker";
-import { createReadStream, openSync, rmSync, statSync } from "node:fs";
+import { createReadStream, existsSync, openSync, rmSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import { liveActivitiesRoutes, type LiveActivities } from "./liveActivities";
 import { AGENT_EVENTS, type AgentEvent, type AgentEventHub, type HookMeta, type NotifyFn } from "./agentEvents";
@@ -49,7 +49,7 @@ import { memoAsync } from "./cache";
 import { GithubError, listOwners, listRepos, validOwner, type GithubOwner, type GithubRepo } from "./github";
 import { GiteaAuthError, GiteaError, GiteaUnknownInstanceError, type GiteaApi } from "./gitea";
 import { join } from "node:path";
-import { stageFile, stageShared } from "./inbox";
+import { MAX_INBOX_BYTES, stageFile, stageShared } from "./inbox";
 import type { SshKeyRef } from "./op";
 import { resolveSshTarget, type SshServer } from "./sshServers";
 import { createScopeGrant, keyCovered, listScopeGrants, liveScopeGrant, revokeScopeGrant, scopeIssue, scopeLabel } from "./sshScopeGrants";
@@ -2240,6 +2240,44 @@ export function createApp(d: ApiDeps): Hono {
     } catch (e) {
       return clipboardDown(c, kind, (e as Error).message);
     }
+  });
+
+  // Browser upload into a session's inbox — the browser-only counterpart of ⌘⇧V / ⌘V on the
+  // mac (which goes through the listener). The dashboard sends one file per request as the raw
+  // body with its name in `x-devbox-filename` (URI-encoded) on paste, drag & drop or the
+  // "Upload file" button, then pastes the returned container path into the prompt — the same
+  // path shape stageFile() gives the xclip shim, so Claude Code, Codex and Grok attach it alike.
+  //
+  // Operator-only, by address (same allowlist as the approval routes): every container on the
+  // host can reach devd, and without this gate one session could drop files into another
+  // session's workspace. Works with a locked vault — it needs no credential.
+  app.post("/api/sessions/:id/upload", async (c) => {
+    const addr = d.remoteAddr?.(c);
+    if (!isApprovalAllowed(addr, d.sshApprovalAllowExtra ?? [])) {
+      console.warn(`upload: denied (${c.req.path}) — address ${addr ?? "unknown"} is not in the allowlist`);
+      return c.json({ error: "this network address cannot upload files" }, 403);
+    }
+    const id = c.req.param("id");
+    const s = getSession(d.db, id);
+    if (!s) return c.json({ error: "unknown session" }, 404);
+    const g = ibxOnly(c, s, "File upload");
+    if (g) return g;
+    let rawName = "";
+    try { rawName = decodeURIComponent(c.req.header("x-devbox-filename") ?? ""); }
+    catch { return c.json({ error: "invalid file name" }, 400); }
+    // Declared size first, so an oversized upload is refused before it is read into memory.
+    const declared = Number(c.req.header("content-length") ?? "NaN");
+    if (Number.isFinite(declared) && declared > MAX_INBOX_BYTES) return c.json({ error: "file is too large (max 25 MB)" }, 413);
+    const body = new Uint8Array(await c.req.arrayBuffer());
+    if (body.length > MAX_INBOX_BYTES) return c.json({ error: "file is too large (max 25 MB)" }, 413);
+    if (body.length === 0) return c.json({ error: "empty file" }, 400);
+    const workspace = sessionWorkdir(d.root, s);
+    if (!existsSync(workspace)) return c.json({ error: "session workspace does not exist" }, 409);
+    let path: string;
+    try { path = stageFile(workspace, rawName, body); }
+    catch (e) { return c.json({ error: (e as Error).message }, 400); }
+    logEvent(d.db, validSeg(id) ? id : null, "file_inbox", { name: path.split("/").pop(), size: body.length, source: "upload" });
+    return c.json({ path });
   });
 
   app.get("/api/config", (c) => { try { return c.json(d.configRepo.read()); } catch (e) { return c.json({ error: (e as Error).message }, 500); } });

@@ -1,6 +1,7 @@
 # File from the mac into the cc prompt — **⌘⇧V**
 
 Get any file from the mac into Claude Code running in a devbox container.
+Without a Mac, use the dashboard terminal instead: see [browser.md](browser.md).
 
 ## How to
 
