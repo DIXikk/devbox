@@ -58,6 +58,10 @@ Build the session image with `docker build -t devbox:latest image/` before start
   names belong in configuration ([docs/configuration.md](docs/configuration.md)). Tests use
   `example.com`, `192.0.2.0/24`, `198.51.100.0/24`, `100.64.0.0/10` and made-up names.
 - **No secrets, ever.** CI runs gitleaks. Use placeholders such as `__CHANGE_ME__`.
+- **No real infrastructure in examples.** Use `example.com`, documentation IP ranges
+  (`192.0.2.0/24`, `100.64.0.0/10`) and invented names. CI also runs a maintainers' private
+  deny-list (`tools/privacy-check.py`); on pull requests from forks it is skipped and runs
+  after merge instead.
 - **English** for code, comments, UI text, docs and commit messages.
 - **Commits** follow the existing style: `type(scope): summary`, e.g.
   `fix(devd): keep session ports on restart`. Explain *why* in the body when it isn't obvious.
