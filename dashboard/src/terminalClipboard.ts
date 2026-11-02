@@ -3,14 +3,14 @@
 // from its own copy-mode (mouse selection) and from apps in the pane (e.g. Claude Code's
 // "c to copy") to the attached client, which here is xterm.js in the dashboard.
 //
-// Writing to the clipboard is only done right after the operator interacted with the terminal
-// (a mouse selection or a key press, see USER_GESTURE_MS). An agent — or a prompt injection that
-// reached it — must not be able to silently replace what the operator pastes next, so a write
-// arriving on its own is only offered behind a "Copy" button instead.
+// Writing to the clipboard is only done right after the operator finished a mouse selection in the
+// terminal (see USER_GESTURE_MS). An agent — or a prompt injection that reached it — must not be
+// able to silently replace what the operator pastes next, so any other write (including one an
+// app makes after a key press, e.g. Claude Code's "c to copy") is offered behind a "Copy" button.
 
 /** Upper bound for an accepted OSC 52 payload (base64 characters), ~1 MB of text. */
 export const MAX_OSC52_BASE64 = 1_400_000;
-/** How long after a user gesture an OSC 52 write counts as user-initiated. */
+/** How long after the end of a mouse selection an OSC 52 write counts as user-initiated. */
 export const USER_GESTURE_MS = 2000;
 
 /** Parses the OSC 52 data part (`<selection>;<base64>`). Returns the text, or null for a query

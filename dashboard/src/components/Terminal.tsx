@@ -37,8 +37,8 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
   const grantedRef = useRef(startUnlocked);
   const onSocketCloseRef = useRef(onSocketClose);
   onSocketCloseRef.current = onSocketClose;
-  // Copy out of the session (OSC 52, see terminalClipboard.ts): written right away after a user
-  // gesture in the terminal, otherwise offered behind a "Copy" button.
+  // Copy out of the session (OSC 52, see terminalClipboard.ts): written right away after a mouse
+  // selection in the terminal, otherwise offered behind a "Copy" button.
   const [copyOffer, setCopyOffer] = useState<{ text: string; failed: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -140,11 +140,12 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
       el.addEventListener("drop", onDrop);
     }
 
-    // OSC 52 from tmux / the app in the pane → browser clipboard.
+    // OSC 52 from tmux / the app in the pane → browser clipboard. Only the end of a mouse
+    // selection counts as "the operator is copying": key presses do not, because the operator types
+    // into the session all the time and a session could time its OSC 52 to follow them.
     let lastGestureAt = 0;
     const onGesture = () => { lastGestureAt = Date.now(); };
     el.addEventListener("mouseup", onGesture, true);
-    el.addEventListener("keydown", onGesture, true);
     const osc = term.parser.registerOscHandler(52, (data) => {
       const text = decodeOsc52(data);
       if (text === null) return true;   // queries are never answered; garbage is swallowed
@@ -162,7 +163,7 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
     return () => {
       disposed = true; window.removeEventListener("resize", onResize);
       el.removeEventListener("paste", onPaste, true); el.removeEventListener("dragover", onDragOver); el.removeEventListener("drop", onDrop);
-      el.removeEventListener("mouseup", onGesture, true); el.removeEventListener("keydown", onGesture, true);
+      el.removeEventListener("mouseup", onGesture, true);
       osc.dispose(); dataSub.dispose(); ws.close(); term.dispose();
     };
   }, [id, tmux, wsUrl, canUpload]);
