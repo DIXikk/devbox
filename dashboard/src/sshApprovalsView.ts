@@ -1,7 +1,7 @@
 // Pure logic of the SshApprovals page. JSX stays in pages/ (same pattern as
 // accountsView / sessionsView / ccUpkeepView).
 
-import { ApiError, type SshApproval } from "./api";
+import { ApiError, type SshApproval, type SshScope, type SshScopeGrant, type TreeProject } from "./api";
 
 export const GRANT_MINUTE_PRESETS = [10, 60, 240, 480, 720, 960] as const;
 
@@ -44,4 +44,37 @@ export function sshTargetLabel(row: Pick<SshApproval, "server" | "target">): str
 export function actionErrorMessage(e: unknown): string | null {
   if (e instanceof ApiError && e.status === 409) return null;
   return e instanceof Error ? e.message : String(e);
+}
+
+export interface ScopeOption { value: string; label: string; scope: SshScope }
+
+/** Who a scope grant can cover, from the repos tree: everyone, a folder, a project (only where a
+ *  folder has projects of its own — in a flat folder project === folder), or one repo. */
+export function scopeOptions(tree: TreeProject[]): ScopeOption[] {
+  const opts: ScopeOption[] = [{ value: "all", label: "All sessions", scope: {} }];
+  const folders = [...new Set(tree.map((p) => p.folder))].sort();
+  for (const folder of folders) {
+    opts.push({ value: `f:${folder}`, label: `${folder}/ (whole folder)`, scope: { folder } });
+    for (const p of tree.filter((t) => t.folder === folder).sort((a, b) => a.project.localeCompare(b.project))) {
+      const flat = p.project === folder;
+      if (!flat) opts.push({ value: `p:${folder}/${p.project}`, label: `${folder}/${p.project}/ (whole project)`, scope: { folder, project: p.project } });
+      for (const r of [...p.repos].sort((a, b) => a.name.localeCompare(b.name))) {
+        opts.push({
+          value: `r:${folder}/${p.project}/${r.name}`,
+          label: flat ? `${folder}/${r.name}` : `${folder}/${p.project}/${r.name}`,
+          scope: { folder, project: p.project, repo: r.name },
+        });
+      }
+    }
+  }
+  return opts;
+}
+
+/** Same shape as the option labels above, for a grant already made. */
+export function scopeGrantLabel(g: Pick<SshScopeGrant, "folder" | "project" | "repo">): string {
+  if (g.folder === null) return "All sessions";
+  if (g.project === null) return `${g.folder}/ (whole folder)`;
+  const flat = g.project === g.folder;
+  if (g.repo === null) return `${g.folder}/${g.project}/ (whole project)`;
+  return flat ? `${g.folder}/${g.repo}` : `${g.folder}/${g.project}/${g.repo}`;
 }

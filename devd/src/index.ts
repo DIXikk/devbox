@@ -43,6 +43,7 @@ import {
 } from "./db";
 import { createSshAgents } from "./sshAgent";
 import { pendingSshLabel, reapExpiredGrants } from "./sshApprovals";
+import { reapExpiredScopeGrants } from "./sshScopeGrants";
 import { isWideCidr } from "./network";
 import { createCriticGate } from "./criticGate";
 import type { CodexAuthDeps } from "./agentAuth";
@@ -1078,9 +1079,10 @@ if (env("DEVD_SSH_APPROVAL", "on") === "off") {
 // in sshApprovals.ts (tested against fake sshAgents); here only the tick + error log.
 // `guardedTick` (same pattern as the other intervals below): a tick that is still running
 // (slow kill/ssh-agent) does not start a second time — it is skipped.
-setInterval(guardedTick("ssh grant cleanup", () =>
-  reapExpiredGrants(db, sshAgents, Date.now(), (id, e) => console.error(`cleanup of expired ssh grant ${id} failed:`, e))),
-30_000);
+setInterval(guardedTick("ssh grant cleanup", async () => {
+  await reapExpiredGrants(db, sshAgents, Date.now(), (id, e) => console.error(`cleanup of expired ssh grant ${id} failed:`, e));
+  await reapExpiredScopeGrants(db, sshAgents, Date.now(), (id, e) => console.error(`cleanup of expired ssh scope grant ${id} failed:`, e));
+}), 30_000);
 setInterval(() => {
   let done: string[] = [];
   try { done = agentEvents.sweep(); liveActivities.request(); } catch (e) { console.error("agent-event sweep failed:", e); }

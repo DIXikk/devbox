@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { api, ApiError } from "./api";
-import { actionErrorMessage, grantDurationLabel, GRANT_MINUTE_PRESETS, maxGrantMinutes, parseGrantMinutes, sshTargetLabel } from "./sshApprovalsView";
+import { actionErrorMessage, grantDurationLabel, GRANT_MINUTE_PRESETS, maxGrantMinutes, parseGrantMinutes, scopeGrantLabel, scopeOptions, sshTargetLabel } from "./sshApprovalsView";
 
 const now = Date.UTC(2026, 8, 11);
 
@@ -76,4 +76,28 @@ test("a generic error (network, throw) is shown via its .message", () => {
 
 test("a non-Error value is at least shown, it does not vanish silently", () => {
   expect(actionErrorMessage("plain string")).toBe("plain string");
+});
+
+test("scopeOptions: everyone, folders, projects only where a folder has its own, and repos", () => {
+  const tree = [
+    { folder: "apps", project: "apps", repos: [{ name: "recipes", cloneUrl: "", provider: "github", cloned: true }, { name: "shop", cloneUrl: "", provider: "github", cloned: true }] },
+    { folder: "acme", project: "portal", repos: [{ name: "web", cloneUrl: "", provider: "github", cloned: true }] },
+  ];
+  expect(scopeOptions(tree).map((o) => [o.label, o.scope])).toEqual([
+    ["All sessions", {}],
+    ["acme/ (whole folder)", { folder: "acme" }],
+    ["acme/portal/ (whole project)", { folder: "acme", project: "portal" }],
+    ["acme/portal/web", { folder: "acme", project: "portal", repo: "web" }],
+    ["apps/ (whole folder)", { folder: "apps" }],
+    ["apps/recipes", { folder: "apps", project: "apps", repo: "recipes" }],
+    ["apps/shop", { folder: "apps", project: "apps", repo: "shop" }],
+  ]);
+});
+
+test("scopeGrantLabel matches the option labels", () => {
+  expect(scopeGrantLabel({ folder: null, project: null, repo: null })).toBe("All sessions");
+  expect(scopeGrantLabel({ folder: "apps", project: null, repo: null })).toBe("apps/ (whole folder)");
+  expect(scopeGrantLabel({ folder: "acme", project: "portal", repo: null })).toBe("acme/portal/ (whole project)");
+  expect(scopeGrantLabel({ folder: "apps", project: "apps", repo: "shop" })).toBe("apps/shop");
+  expect(scopeGrantLabel({ folder: "acme", project: "portal", repo: "web" })).toBe("acme/portal/web");
 });

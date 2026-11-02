@@ -52,6 +52,7 @@ import { join } from "node:path";
 import { stageFile, stageShared } from "./inbox";
 import type { SshKeyRef } from "./op";
 import { resolveSshTarget, type SshServer } from "./sshServers";
+import { createScopeGrant, keyCovered, listScopeGrants, liveScopeGrant, revokeScopeGrant, scopeIssue, scopeLabel } from "./sshScopeGrants";
 import { dbEntry, roUrl, entitledDbs, type Catalog, type Access, type DbEntry, type ServerRef } from "./prodDb";
 import { createProposal, listProposals, getProposal, setStatus, type WriteStatus, type WriteScope } from "./prodWrites";
 import type { ListenerClient } from "./listener";
@@ -1688,20 +1689,21 @@ export function createApp(d: ApiDeps): Hono {
       return c.json({ error: "invalid target" }, 400);
     }
 
-    // `target` only for the grant path — bypass ignores the target.
-    const issue = async (why: "bypass" | "grant", target: string | null = null) => {
+    // `target` only for the grant path — bypass ignores the target, a scope grant covers the key.
+    const issue = async (why: "bypass" | "grant" | "scope", target: string | null = null) => {
       try {
       const { agentSock } = await d.sshAgents!.activate(session, body.title!);
       // Activation yields while loading the key; the grant may be revoked meanwhile.
-      // Recheck the grant for THIS target; the kill, though, is key-level: the agent
-      // holds the key for every target, so it stays while any other target's grant
-      // of the same key is live (liveKeyGrant, see sshApprovals.ts).
-      const grant = why === "grant" ? liveGrant(d.db, session, body.title!, target) : undefined;
-      if (why === "grant" && !grant) {
-        if (!liveKeyGrant(d.db, session, body.title!)) await d.sshAgents!.kill(session, body.title!);
+      // Recheck the grant for THIS target (or the scope grant); the kill, though, is key-level:
+      // the agent holds the key for every target, so it stays while the session is still
+      // covered by another grant of the same key (keyCovered, see sshScopeGrants.ts).
+      const grant = why === "grant" ? liveGrant(d.db, session, body.title!, target)
+        : why === "scope" && row ? liveScopeGrant(d.db, row, body.title!) : undefined;
+      if (why !== "bypass" && !grant) {
+        if (!keyCovered(d.db, session, body.title!)) await d.sshAgents!.kill(session, body.title!);
         return c.json({ error: "the approval expired or was revoked in the meantime" }, 403);
       }
-      logEvent(d.db, session, "ssh_key_access", { title: body.title, via: why });
+      logEvent(d.db, session, "ssh_key_access", { title: body.title, via: why, ...(why === "scope" ? { scopeGrant: (grant as { id: string }).id } : {}) });
       return c.json({ agentSock, expiresAt: grant?.grant_until ?? null });
       } catch (e) { return opLimited(c, e) ?? c.json({ error: "Loading the SSH key failed" }, 502); }
     };
@@ -1720,6 +1722,9 @@ export function createApp(d: ApiDeps): Hono {
     // A shared/tainted session must not silently use a grant the owner approved earlier
     // for their agent — every request goes to the owner again, with a label (final review I4).
     if (!fromShared(session) && liveGrant(d.db, session, body.title, resolved.target)) return await issue("grant", resolved.target);
+    // A key granted from the dashboard to many sessions (all, a folder, a project, a repo) —
+    // same exception for shared sessions as above.
+    if (!fromShared(session) && row && liveScopeGrant(d.db, row, body.title)) return await issue("scope");
 
     // title is chosen by the container (srv gets it as $1) — before we create the approval row
     // and send the prompt, verify it against the real SSH-key items in 1Password (via
@@ -1823,8 +1828,8 @@ export function createApp(d: ApiDeps): Hono {
       const current = getApproval(d.db, id);
       if (current?.status !== "activated" ||
           (current.grant_permanent !== 1 && (current.grant_until ?? current.expires_at) <= Date.now())) {
-        // Key-level (liveKeyGrant): the agent needs a grant for another target of the same key.
-        if (!liveKeyGrant(d.db, session, row.title)) await d.sshAgents.kill(session, row.title);
+        // Key-level (keyCovered): another target's grant of the same key, or a scope grant, still needs the agent.
+        if (!keyCovered(d.db, session, row.title)) await d.sshAgents.kill(session, row.title);
         return c.json({ error: "the approval expired or was revoked in the meantime" }, 403);
       }
       logEvent(d.db, session, "ssh_key_access", { title: row.title, via: "approval", id });
@@ -1909,11 +1914,55 @@ export function createApp(d: ApiDeps): Hono {
     // skip it and the audit log would not say the grant was revoked.
     logEvent(d.db, null, "ssh_grant_revoked", { id });
     try {
-      // Key-level (liveKeyGrant): revoking the grant for target A must not kill an agent that
-      // is held by a live grant for target B of the same key.
-      if (row.session_id && !liveKeyGrant(d.db, row.session_id, row.title)) await d.sshAgents?.kill(row.session_id, row.title);
+      // Key-level (keyCovered): revoking the grant for target A must not kill an agent that
+      // is held by a live grant for target B of the same key, or by a scope grant.
+      if (row.session_id && !keyCovered(d.db, row.session_id, row.title)) await d.sshAgents?.kill(row.session_id, row.title);
     } catch (e) { return c.json({ error: (e as Error).message }, 502); }
     return c.json({ ok: true });
+  });
+
+  // Keys granted to many sessions at once (see sshScopeGrants.ts). Human decisions, so the same
+  // gates as approve/revoke: approvalGate (no container may grant itself) and vaultGate.
+  app.get("/api/ssh-scope-grants", (c) => {
+    const blocked = approvalGate(c); if (blocked) return blocked;
+    return c.json(listScopeGrants(d.db));
+  });
+
+  app.post("/api/ssh-scope-grants", async (c) => {
+    const blocked = approvalGate(c); if (blocked) return blocked;
+    const locked = vaultGate(c); if (locked) return locked;
+    const b = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!b || typeof b.title !== "string" || !b.title) return c.json({ error: "title required" }, 400);
+    const scope = { folder: (b.folder as string | undefined) ?? null, project: (b.project as string | undefined) ?? null, repo: (b.repo as string | undefined) ?? null };
+    const issue = scopeIssue(scope);
+    if (issue) return c.json({ error: issue }, 400);
+    const now = Date.now();
+    const duration = parseGrantDuration(b, now);
+    // "Once" makes no sense for many sessions: a scope grant always has a duration or is permanent.
+    if (!duration || (!duration.grantPermanent && duration.grantUntil === undefined)) {
+      return c.json({ error: "choose a number of minutes or a permanent grant" }, 400);
+    }
+    // Same check as a request from srv: only a real 1Password SSH key can be granted.
+    if (!d.sshKeyLister) return c.json({ error: "1Password is not configured" }, 503);
+    let known: SshKeyRef[];
+    try { known = await d.sshKeyLister(); }
+    catch (e) { return opLimited(c, e) ?? c.json({ error: "1Password is currently unavailable, try again" }, 502); }
+    if (!known.some((k) => k.title === b.title)) return c.json({ error: "no SSH key with this name exists" }, 400);
+    const id = createScopeGrant(d.db, { title: b.title, ...scope, by: "dashboard", grantUntil: duration.grantUntil, grantPermanent: duration.grantPermanent }, now);
+    logEvent(d.db, null, "ssh_scope_granted", { id, title: b.title, scope: scopeLabel(scope),
+      grantMinutes: duration.grantMinutes, grantPermanent: duration.grantPermanent === true });
+    return c.json({ id }, 201);
+  });
+
+  app.delete("/api/ssh-scope-grants/:id", async (c) => {
+    const blocked = approvalGate(c); if (blocked) return blocked;
+    const locked = vaultGate(c); if (locked) return locked;
+    try {
+      const row = await revokeScopeGrant(d.db, c.req.param("id"), d.sshAgents);
+      if (!row) return c.json({ error: "no live scope grant with this id" }, 409);
+      logEvent(d.db, null, "ssh_scope_revoked", { id: row.id, title: row.title, scope: scopeLabel(row) });
+      return c.json({ ok: true });
+    } catch (e) { return c.json({ error: (e as Error).message }, 502); }
   });
 
   app.post("/api/clone", async (c) => {

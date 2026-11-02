@@ -761,3 +761,70 @@ test("I4: an SSH request from a shared session is labelled in both the notificat
   expect(notes[1]).toBe("SSH key awaiting approval (from a shared session)");
   expect(rows[1]?.shared).toBe(true);
 });
+
+/* ==================== scope grants: one key for many sessions ==================== */
+
+const SESSION_ROW = { id: "dev-web-app", folder: "f", project: "web", repo: "app", container: "dev-web-app", port_base: 44100, status: "running" as const, solo: 0 as const, created_at: 0, last_active_at: 0, important: 0 as const };
+const grantJson = (body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+test("scope grant: a session in scope gets the key without a request; out of scope it still asks", async () => {
+  const { app, db, activated } = harness();
+  insertSession(db, SESSION_ROW);
+  insertSession(db, { ...SESSION_ROW, id: "dev-other-x", project: "other", repo: "x", container: "dev-other-x", port_base: 44200 });
+  const created = await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", folder: "f", project: "web", grantMinutes: 60 }));
+  expect(created.status).toBe(201);
+
+  const r = await app.request("/api/ssh-approvals", json({ title: "shop", why: "deploy" }));
+  expect(r.status).toBe(200);
+  expect(((await r.json()) as { agentSock: string; expiresAt: number }).expiresAt).toBeGreaterThan(Date.now());
+  expect(activated).toEqual(["dev-web-app"]);
+  expect(db.query("SELECT COUNT(*) c FROM ssh_approvals").get()).toEqual({ c: 0 });
+
+  const other = await app.request("/api/ssh-approvals", json({ title: "shop", why: "deploy" }, "dev-other-x"));
+  expect(other.status).toBe(202);
+});
+
+test("scope grant: validation — unknown key, project without folder, and 'once' are refused", async () => {
+  const { app } = harness();
+  expect((await app.request("/api/ssh-scope-grants", grantJson({ title: "nope", grantPermanent: true }))).status).toBe(400);
+  expect((await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", project: "web", grantPermanent: true }))).status).toBe(400);
+  expect((await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", grantMinutes: 0 }))).status).toBe(400);
+  expect((await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", grantPermanent: true }))).status).toBe(201);
+});
+
+test("scope grant: a container cannot grant or list them (approvalGate)", async () => {
+  const { app } = harness({ remoteAddr: () => DOCKER_BRIDGE_ADDR });
+  expect((await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", grantPermanent: true }))).status).toBe(403);
+  expect((await app.request("/api/ssh-scope-grants")).status).toBe(403);
+});
+
+test("scope grant: revoking kills the agents it covered and the next request asks again", async () => {
+  const { app, db, killed } = harness();
+  insertSession(db, SESSION_ROW);
+  const { id } = await (await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", grantPermanent: true }))).json() as { id: string };
+  expect((await app.request("/api/ssh-approvals", json({ title: "shop", why: "x" }))).status).toBe(200);
+  expect(((await (await app.request("/api/ssh-scope-grants")).json()) as unknown[]).length).toBe(1);
+
+  expect((await app.request(`/api/ssh-scope-grants/${id}`, { method: "DELETE" })).status).toBe(200);
+  expect(killed).toContainEqual({ session: "dev-web-app", title: "shop" });
+  expect((await app.request(`/api/ssh-scope-grants/${id}`, { method: "DELETE" })).status).toBe(409);
+  expect((await app.request("/api/ssh-approvals", json({ title: "shop", why: "x" }))).status).toBe(202);
+});
+
+test("scope grant: revoking a session's own grant keeps the agent a scope grant still covers", async () => {
+  const { app, db, killed } = harness();
+  insertSession(db, SESSION_ROW);
+  const { id } = await (await app.request("/api/ssh-approvals", json({ title: "shop", why: "x" }))).json() as { id: string };
+  await app.request(`/api/ssh-approvals/${id}/approve`, json({ grantMinutes: 60 }));
+  await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", folder: "f", grantPermanent: true }));
+  expect((await app.request(`/api/ssh-grants/${id}`, { method: "DELETE" })).status).toBe(200);
+  expect(killed).toEqual([]);
+});
+
+test("scope grant: a shared session still asks the owner", async () => {
+  const { app, db } = harness({ dind: true });
+  insertSession(db, SESSION_ROW);
+  await app.request("/api/ssh-scope-grants", grantJson({ title: "shop", grantPermanent: true }));
+  expect((await app.request("/api/sessions/dev-web-app/shares", json({ minutes: 30 }))).status).toBe(201);
+  expect((await app.request("/api/ssh-approvals", json({ title: "shop", why: "after sharing" }))).status).toBe(202);
+});

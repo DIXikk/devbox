@@ -320,6 +320,12 @@ export interface SshApproval {
 // Mirror of the GET /api/op/ssh-keys response — `servers` are the configured aliases (sshServers)
 // for this particular key, not just their names (devd/src/api.ts).
 export interface SshKey { title: string; vault: string; servers: { name: string; user: string; host: string; port: number }[] }
+/** A key granted to many sessions at once (devd/src/sshScopeGrants.ts). null scope level = "any". */
+export interface SshScopeGrant {
+  id: string; title: string; folder: string | null; project: string | null; repo: string | null;
+  created_at: number; created_by: string; grant_until: number | null; grant_permanent: 0 | 1; revoked_at: number | null;
+}
+export interface SshScope { folder?: string; project?: string; repo?: string }
 
 /* ------------------------------- Hardware ------------------------------- */
 
@@ -589,6 +595,10 @@ export const api = {
   sshDeny: (id: string) => j<{ ok: true }>(`/api/ssh-approvals/${id}/deny`, post({ by: "dashboard" })),
   sshGrants: () => j<SshApproval[]>("/api/ssh-grants"),
   sshRevokeGrant: (id: string) => j<{ ok: true }>(`/api/ssh-grants/${id}`, { method: "DELETE" }),
+  sshScopeGrants: () => j<SshScopeGrant[]>("/api/ssh-scope-grants"),
+  sshCreateScopeGrant: (title: string, scope: SshScope, grantMinutes: number, grantPermanent = false) =>
+    j<{ id: string }>("/api/ssh-scope-grants", post({ title, ...scope, grantMinutes, ...(grantPermanent ? { grantPermanent: true } : {}) })),
+  sshRevokeScopeGrant: (id: string) => j<{ ok: true }>(`/api/ssh-scope-grants/${id}`, { method: "DELETE" }),
   sshGate: () => j<{ enabled: boolean }>("/api/ssh-gate"),
   // `fresh` = Refresh in the UI: the server drops the cache and waits for a full scan.
   unpushed: (fresh = false) => j<UnpushedReport>(fresh ? "/api/unpushed?fresh=1" : "/api/unpushed"),
