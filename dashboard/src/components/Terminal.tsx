@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { encodeBottom, encodeInput, encodeResize, encodeScroll, encodeUnlock, KEY_BAR, KEY_SEQ, terminalWsUrl, wheelSteps } from "../terminalProto";
 import { filesFrom, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "../terminalUpload";
+import { decodeOsc52, isUserInitiated, preview, writeClipboard } from "../terminalClipboard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,15 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
   const grantedRef = useRef(startUnlocked);
   const onSocketCloseRef = useRef(onSocketClose);
   onSocketCloseRef.current = onSocketClose;
+  // Copy out of the session (OSC 52, see terminalClipboard.ts): written right away after a mouse
+  // selection in the terminal, otherwise offered behind a "Copy" button.
+  const [copyOffer, setCopyOffer] = useState<{ text: string; failed: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
   // Files into the session (paste / drag & drop / button) — owner's terminal only: a share
   // guest has no `id` and devd refuses uploads from non-operator addresses anyway.
   const canUpload = Boolean(id) && !wsUrl;
@@ -130,10 +140,31 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
       el.addEventListener("drop", onDrop);
     }
 
+    // OSC 52 from tmux / the app in the pane → browser clipboard. Only the end of a mouse
+    // selection counts as "the operator is copying": key presses do not, because the operator types
+    // into the session all the time and a session could time its OSC 52 to follow them.
+    let lastGestureAt = 0;
+    const onGesture = () => { lastGestureAt = Date.now(); };
+    el.addEventListener("mouseup", onGesture, true);
+    const osc = term.parser.registerOscHandler(52, (data) => {
+      const text = decodeOsc52(data);
+      if (text === null) return true;   // queries are never answered; garbage is swallowed
+      if (isUserInitiated(lastGestureAt, Date.now())) {
+        void writeClipboard(text).then((ok) => {
+          if (disposed) return;
+          if (ok) { setCopyOffer(null); setCopied(true); } else setCopyOffer({ text, failed: false });
+        });
+      } else {
+        setCopyOffer({ text, failed: false });
+      }
+      return true;
+    });
+
     return () => {
       disposed = true; window.removeEventListener("resize", onResize);
       el.removeEventListener("paste", onPaste, true); el.removeEventListener("dragover", onDragOver); el.removeEventListener("drop", onDrop);
-      dataSub.dispose(); ws.close(); term.dispose();
+      el.removeEventListener("mouseup", onGesture, true);
+      osc.dispose(); dataSub.dispose(); ws.close(); term.dispose();
     };
   }, [id, tmux, wsUrl, canUpload]);
 
@@ -147,6 +178,11 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
     wsRef.current.send(encodeInput(KEY_SEQ[k] ?? ""));
     setScrolledUp(false);
     termRef.current?.focus();
+  }
+  async function copyOffered() {
+    if (!copyOffer) return;
+    const ok = await writeClipboard(copyOffer.text);
+    if (ok) { setCopyOffer(null); setCopied(true); termRef.current?.focus(); } else setCopyOffer({ ...copyOffer, failed: true });
   }
   function toBottom() {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(encodeBottom());
@@ -167,6 +203,7 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
         </span>}
         {headerExtra}
         <span className="flex-1" />
+        {copied && <span role="status" className="text-xs text-[#79d88b]">Copied to clipboard</span>}
         {uploadMsg && <span role={uploadMsg.error ? "alert" : "status"} className={cn("max-w-[40ch] truncate text-xs", uploadMsg.error ? "text-[#ff7b72]" : "text-[#9fb0c3]")} title={uploadMsg.text}>{uploadMsg.text}</span>}
         <span className="text-xs text-[#9fb0c3]">{status === "open" ? "" : status === "connecting" ? (statusLabels?.connecting ?? "connecting…") : (statusLabels?.closed ?? "disconnected")}</span>
         {!granted && (
@@ -198,6 +235,15 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
         )}
         {onClose && <Button variant="ghost" size="sm" className="text-[#9fb0c3] hover:bg-[#1c2230] hover:text-[#e6edf3]" onClick={onClose}>Close</Button>}
       </div>
+      {copyOffer && (
+        <div role="status" className="flex items-center gap-2 border-b border-[#1c2230] bg-[#131a26] px-3.5 py-2 text-sm">
+          <span className="shrink-0 text-[#9fb0c3]">The session copied text:</span>
+          <code className="min-w-0 flex-1 truncate text-[#e6edf3]" title={copyOffer.text}>{preview(copyOffer.text)}</code>
+          {copyOffer.failed && <span className="shrink-0 text-xs text-[#ff7b72]">The browser blocked it — select the text and copy it by hand.</span>}
+          <Button size="sm" onMouseDown={(e) => e.preventDefault()} onClick={() => void copyOffered()}>Copy</Button>
+          <Button variant="ghost" size="sm" className="text-[#9fb0c3] hover:bg-[#1c2230] hover:text-[#e6edf3]" onClick={() => setCopyOffer(null)}>Dismiss</Button>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         <div className="h-full p-1.5" ref={host} />
         {scrolledUp && (

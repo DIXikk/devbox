@@ -26,10 +26,29 @@ into a local terminal. A clipboard screenshot gets a timestamped name (`img-<dat
 
 This does not need HTTPS: paste and drop events carry files on plain `http://` too.
 
+## Copying out of a session
+
+Text copied inside a session reaches the browser clipboard over OSC 52 (`set-clipboard on`
+in `image/tmux.conf`, applied to sessions created after the image is rebuilt):
+
+- **select text with the mouse** in the terminal (tmux copies the selection on release), or
+- use an agent's own copy action, e.g. **`c`** on Claude Code's "Browser didn't open? … (c to copy)".
+
+A copy that follows your mouse selection within 2 s goes straight to the clipboard
+("Copied to clipboard"). Any other copy — an agent's copy action, something the session sends on
+its own, or a write the browser refuses — appears as a bar with a **Copy** button, so a session
+cannot silently replace what you paste next (key presses do not count: you type into the session
+all the time). Clipboard *reads* (OSC 52 queries) are never answered.
+
+On plain `http://` the browser only allows clipboard writes right after a user action; if a write
+is blocked, use the **Copy** button. Holding **Shift** while selecting makes a local xterm.js
+selection that bypasses tmux, which you can copy with the browser's own copy command.
+
 ## Compared with the Mac integration
 
 | | Mac with listener | Browser only |
 |---|---|---|
 | Image or file into the prompt | `⌘V` / `⌘⇧V` in Warp | paste, drop or **Upload file** in the dashboard terminal |
 | Notifications | macOS notifications, click focuses the Warp tab | the dashboard Overview |
+| Copy out of a session | Mac clipboard via the listener | browser clipboard via OSC 52 |
 | `open` / `preview` from a container | opens on the Mac | not available |
