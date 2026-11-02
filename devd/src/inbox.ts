@@ -3,6 +3,10 @@ import { basename, extname, join } from "node:path";
 
 const SAFE = /[^A-Za-z0-9._-]/g;
 
+/** Upper bound for one file staged into a session inbox from the browser (dashboard upload) —
+ *  the same 25 MB the mac listener enforces for ⌘⇧V. */
+export const MAX_INBOX_BYTES = 25 * 1024 * 1024;
+
 // Only basename, safe characters, no leading dots (hidden / .. ). Invalid → null.
 export function sanitizeName(raw: string): string | null {
   const base = basename(raw).replace(/^\.+/, "");

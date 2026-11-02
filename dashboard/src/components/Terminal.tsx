@@ -3,6 +3,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { encodeBottom, encodeInput, encodeResize, encodeScroll, encodeUnlock, KEY_BAR, KEY_SEQ, terminalWsUrl, wheelSteps } from "../terminalProto";
+import { filesFrom, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "../terminalUpload";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,36 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
   const grantedRef = useRef(startUnlocked);
   const onSocketCloseRef = useRef(onSocketClose);
   onSocketCloseRef.current = onSocketClose;
+  // Files into the session (paste / drag & drop / button) — owner's terminal only: a share
+  // guest has no `id` and devd refuses uploads from non-operator addresses anyway.
+  const canUpload = Boolean(id) && !wsUrl;
+  const [uploadMsg, setUploadMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  async function uploadFiles(files: File[]) {
+    if (!canUpload || !id || files.length === 0) return;
+    if (!grantedRef.current) { setUploadMsg({ text: "Take control first, then paste or drop the file again.", error: true }); return; }
+    const big = tooLarge(files);
+    if (big.length) { setUploadMsg({ text: `Too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024} MB): ${big.map((f) => f.name || "pasted image").join(", ")}`, error: true }); return; }
+    setUploadMsg({ text: files.length === 1 ? "Uploading…" : `Uploading ${files.length} files…`, error: false });
+    const paths: string[] = [];
+    try {
+      for (const f of files) paths.push(await uploadToSession(id, f, uploadName(f)));
+    } catch (e) {
+      setUploadMsg({ text: `Upload failed: ${(e as Error).message}`, error: true });
+    }
+    if (paths.length) {
+      termRef.current?.paste(promptText(paths));   // bracketed paste (if the pane asked for it) — like devbox-ctrlv
+      termRef.current?.focus();
+      setUploadMsg((m) => (m?.error ? m : { text: `Attached ${paths.length === 1 ? paths[0] : `${paths.length} files`}`, error: false }));
+    }
+  }
+  const uploadFilesRef = useRef(uploadFiles);
+  uploadFilesRef.current = uploadFiles;
+  useEffect(() => {
+    if (!uploadMsg || uploadMsg.error || uploadMsg.text.endsWith("…")) return;
+    const t = setTimeout(() => setUploadMsg(null), 4000);
+    return () => clearTimeout(t);
+  }, [uploadMsg]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -76,8 +107,35 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
     const onResize = () => { fit.fit(); if (ws.readyState === ws.OPEN) ws.send(encodeResize(term.cols, term.rows)); };
     window.addEventListener("resize", onResize);
 
-    return () => { disposed = true; window.removeEventListener("resize", onResize); dataSub.dispose(); ws.close(); term.dispose(); };
-  }, [id, tmux, wsUrl]);
+    // Paste with files (a screenshot, a file copied in Explorer/Finder) and drag & drop → upload.
+    // Capture phase, so xterm.js's own paste handler never sees a file paste; plain-text pastes
+    // pass through to it untouched.
+    const el = host.current;
+    const onPaste = (ev: ClipboardEvent) => {
+      const files = filesFrom(ev.clipboardData);
+      if (!files.length) return;
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      void uploadFilesRef.current(files);
+    };
+    const onDragOver = (ev: DragEvent) => { if (ev.dataTransfer?.types.includes("Files")) ev.preventDefault(); };
+    const onDrop = (ev: DragEvent) => {
+      const files = filesFrom(ev.dataTransfer);
+      if (!files.length) return;
+      ev.preventDefault();
+      void uploadFilesRef.current(files);
+    };
+    if (canUpload) {
+      el.addEventListener("paste", onPaste, true);
+      el.addEventListener("dragover", onDragOver);
+      el.addEventListener("drop", onDrop);
+    }
+
+    return () => {
+      disposed = true; window.removeEventListener("resize", onResize);
+      el.removeEventListener("paste", onPaste, true); el.removeEventListener("dragover", onDragOver); el.removeEventListener("drop", onDrop);
+      dataSub.dispose(); ws.close(); term.dispose();
+    };
+  }, [id, tmux, wsUrl, canUpload]);
 
   function takeControl() {
     grantedRef.current = true; setGranted(true);
@@ -109,6 +167,7 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
         </span>}
         {headerExtra}
         <span className="flex-1" />
+        {uploadMsg && <span role={uploadMsg.error ? "alert" : "status"} className={cn("max-w-[40ch] truncate text-xs", uploadMsg.error ? "text-[#ff7b72]" : "text-[#9fb0c3]")} title={uploadMsg.text}>{uploadMsg.text}</span>}
         <span className="text-xs text-[#9fb0c3]">{status === "open" ? "" : status === "connecting" ? (statusLabels?.connecting ?? "connecting…") : (statusLabels?.closed ?? "disconnected")}</span>
         {!granted && (
           <Button
@@ -120,6 +179,22 @@ export function Terminal({ id, tmux, wsUrl, startUnlocked = false, title, onClos
           >
             Take control
           </Button>
+        )}
+        {canUpload && granted && (
+          <>
+            <input ref={fileInput} type="file" multiple hidden aria-label="Upload file to the session"
+              onChange={(e) => { const files = filesFrom(e.currentTarget); e.currentTarget.value = ""; void uploadFiles(files); }} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-[#1c2230] bg-transparent text-[#e6edf3] hover:bg-[#1c2230] hover:text-[#e6edf3]"
+              onClick={() => fileInput.current?.click()}
+              disabled={status !== "open"}
+              title="Upload a file into the session (.inbox) and paste its path — you can also paste or drop files onto the terminal"
+            >
+              Upload file
+            </Button>
+          </>
         )}
         {onClose && <Button variant="ghost" size="sm" className="text-[#9fb0c3] hover:bg-[#1c2230] hover:text-[#e6edf3]" onClick={onClose}>Close</Button>}
       </div>
