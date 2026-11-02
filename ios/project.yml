@@ -76,6 +76,7 @@ targets:
         # ATS blocks plain HTTP by default. The tailnet path (see AppModel/DevdClient) goes to a
         # bare IP without TLS (Tailscale certificates are not easy for the app to verify) — instead of
         # a blanket NSAllowsArbitraryLoads, only a narrow exception for this one devbox IP.
+        # 100.64.0.10 is a placeholder: put your devd's tailnet IP here (see docs/ios.md).
         NSAppTransportSecurity:
           NSExceptionDomains:
             100.64.0.10:

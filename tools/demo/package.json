@@ -1,0 +1,13 @@
+{
+  "name": "devbox-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "server": "bun run server.ts",
+    "capture": "bun run capture.mjs",
+    "gifs": "bash tapes/record.sh"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}
