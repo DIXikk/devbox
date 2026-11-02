@@ -356,10 +356,13 @@ struct AgentActivityElapsed: View {
     var font: Font = .system(size: 12, weight: .semibold)
 
     var body: some View {
-        // Classic `.relative` style (build 12 rendered with it on device). iOS 18
-        // `Text(.currentDate, format:)` and `Text(timerInterval: …distantFuture)` both
-        // broke rendering of the whole Live Activity and the medium widget on device (empty block).
-        Text(min(since, Date()), style: .relative)
+        // Classic `.timer` style ("4:59", "1:02:03"). iOS 18 `Text(.currentDate, format:)` and
+        // `Text(timerInterval: …distantFuture)` both broke rendering of the whole Live Activity and
+        // the medium widget on device (empty block). `.relative` rendered, but after a minute it
+        // reads "5 min, 0 sec", which does not fit the column: the expanded Dynamic Island cut it
+        // off at its edge ("5 mir", seen in the simulator on iPhone 18 Pro).
+        // No .monospacedDigit() here — see the rules above AgentActivityCard.
+        Text(min(since, Date()), style: .timer)
             .font(font)
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)

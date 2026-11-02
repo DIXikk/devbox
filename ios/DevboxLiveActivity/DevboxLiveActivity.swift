@@ -30,9 +30,13 @@ struct DevboxLiveActivity: Widget {
                         AgentActivityHeader(state: context.state)
                         AgentActivityRows(state: context.state, maxRows: B2Layout.expandedRows, stale: context.isStale)
                         if context.isStale {
+                            // Centered: this is the island's last line and sits where its corners curve
+                            // in — left-aligned, the rounded corner cut off the first letters
+                            // ("tatus is out of date", seen in the simulator on iPhone 18 Pro).
                             Text("Status is out of date")
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(.white.opacity(0.85))
+                                .frame(maxWidth: .infinity, alignment: .center)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
