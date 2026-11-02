@@ -1,0 +1,10 @@
+# Security updates for npm/bun dependencies come from Dependabot alerts (enabled in the
+# repository settings); version updates are kept to the CI actions to avoid noise.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

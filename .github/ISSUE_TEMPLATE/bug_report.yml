@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in devbox does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security issues: please do not open an issue — see [SECURITY.md](https://github.com/bohous04/devbox/blob/main/SECURITY.md).
+        Before pasting logs or config, remove hostnames, IPs, tokens and repository names you do not want public.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. dev acme/web
+        2. …
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [devd, dashboard, dev CLI, Mac listener, iOS app, session image, infra / setup.sh, other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`curl -s http://<devd>:4300/api/health` shows version and commit."
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Server OS, agent (Claude Code / Codex / Grok) and its version, macOS / iOS version where relevant.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`journalctl -u devd`, `dev doctor`, browser console — trimmed to the relevant part."
+      render: text
