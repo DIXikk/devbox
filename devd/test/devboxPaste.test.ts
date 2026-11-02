@@ -15,8 +15,8 @@ function fakeBin() {
   return dir;
 }
 
-async function run(bin: string, env: Record<string, string>) {
-  const p = Bun.spawn(["sh", SCRIPT], {
+async function run(bin: string, env: Record<string, string>, kind?: string) {
+  const p = Bun.spawn(["sh", SCRIPT, ...(kind ? [kind] : [])], {
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env },
     stdout: "pipe",
     stderr: "ignore",
@@ -57,6 +57,22 @@ test("devbox-paste: 204 (no file on the clipboard) → exit 1, nothing on stdout
     expect(r.code).toBe(1);
     expect(r.stdout).toBe("");
     expect(readFileSync(join(bin, "notify.txt"), "utf8")).toContain("No file"); // notification text from infra/devbox-paste
+  } finally { srv.stop(true); }
+});
+
+test("devbox-paste: screenshot → image endpoint and the path; the image stays on the clipboard", async () => {
+  const bin = fakeBin();
+  const hits: string[] = [];
+  const srv = Bun.serve({ port: 0, fetch(req) {
+    const u = new URL(req.url);
+    hits.push(u.pathname + u.search);
+    return new Response("/inbox/img-test.png");
+  } });
+  try {
+    const r = await run(bin, { DEVD_URL: `http://localhost:${srv.port}` }, "image");
+    expect(r).toEqual({ code: 0, stdout: "/inbox/img-test.png" });
+    expect(hits).toEqual(["/api/clipboard/image?target=shared"]);
+    expect(existsSync(join(bin, "clipboard.txt"))).toBe(false);
   } finally { srv.stop(true); }
 });
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createListener, allowedPreviewUrl } from "../src/server";
 import type { Actions } from "../src/actions";
-import type { SshApprovalReq } from "../src/sshPrompt";
+import type { SshApprovalAnswer, SshApprovalReq } from "../src/sshPrompt";
 
 const cfg = { token: "secret", host: "127.0.0.1", port: 7777, mappings: [{ from: "/srv/dev", to: "/Volumes/dev" }] };
 function fixture() {
@@ -12,7 +12,7 @@ function fixture() {
   let clipFile: { name: string; bytes: Uint8Array } | { tooBig: true } | null = null;
   const bridges: [string, number][] = []; let bridgeOk = true;
   const sshAsked: SshApprovalReq[] = [];
-  let sshAnswer: { decision: "approve" | "deny"; grantMinutes: number } | null = null;
+  let sshAnswer: SshApprovalAnswer | null = null;
   const actions: Actions = {
     startProxyBridge: (base, ttl) => { if (bridgeOk) bridges.push([base, ttl]); return { ok: bridgeOk }; },
     open: (p) => { opened.push(p); return { code: 0 }; },
@@ -34,7 +34,7 @@ function fixture() {
     setFocusHit: (v: boolean) => { focusHit = v; },
     setClip: (t: string[], i: Uint8Array | null, x: string | null) => { clipTargets = t; clipImage = i; clipText = x; },
     setClipFile: (f: { name: string; bytes: Uint8Array } | { tooBig: true } | null) => { clipFile = f; },
-    sshAsked, setSshAnswer: (a: { decision: "approve" | "deny"; grantMinutes: number } | null) => { sshAnswer = a; },
+    sshAsked, setSshAnswer: (a: SshApprovalAnswer | null) => { sshAnswer = a; },
   };
 }
 const post = (app: { fetch(r: Request): Promise<Response> }, path: string, body: unknown, token?: string) =>
@@ -248,4 +248,18 @@ test("ssh-approval: missing id/title/why → 400, no token → 401", async () =>
   expect((await post(app, "/ssh-approval", { id: "abc", why: "x" }, "secret")).status).toBe(400);
   expect((await post(app, "/ssh-approval", { id: "abc", title: "shop" }, "secret")).status).toBe(400);
   expect((await post(app, "/ssh-approval", { id: "abc", title: "shop", why: "x" })).status).toBe(401);
+});
+
+test("ssh-approval passes custom, 960-minute and permanent decisions through", async () => {
+  for (const answer of [
+    { decision: "approve", grantMinutes: 37 },
+    { decision: "approve", grantMinutes: 960 },
+    { decision: "approve", grantMinutes: 0, grantPermanent: true },
+  ] as const) {
+    const { app, setSshAnswer } = fixture();
+    setSshAnswer(answer);
+    const response = await post(app, "/ssh-approval", { id: "preview", title: "test", why: "test" }, "secret");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(answer);
+  }
 });
