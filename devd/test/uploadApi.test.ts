@@ -107,3 +107,16 @@ test("path traversal in the file name stays inside .inbox", async () => {
   expect(((await r.json()) as { path: string }).path).toBe("/workspace/.inbox/passwd");
   expect(existsSync(join(root, "shop", "cms", ".inbox", "passwd"))).toBe(true);
 });
+
+// Regression (live test from Windows): the dashboard sends Origin + application/octet-stream, and the
+// CSRF guard answered 415 "Content-Type must be application/json" before the route ran.
+test("upload from the dashboard origin with a raw body passes the CSRF guard", async () => {
+  const { a } = setup();
+  const r = await a.request("/api/sessions/dev-shop-cms/upload", {
+    method: "POST",
+    headers: { origin: "http://localhost:4300", "sec-fetch-site": "same-origin", "x-devbox-filename": "shot.png", "content-type": "application/octet-stream" },
+    body: new Uint8Array([1, 2, 3]),
+  });
+  expect(r.status).toBe(200);
+  expect(((await r.json()) as { path: string }).path).toBe("/workspace/.inbox/shot.png");
+});
