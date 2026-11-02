@@ -44,6 +44,20 @@ On plain `http://` the browser only allows clipboard writes right after a user a
 is blocked, use the **Copy** button. Holding **Shift** while selecting makes a local xterm.js
 selection that bypasses tmux, which you can copy with the browser's own copy command.
 
+## Signing in Claude Code
+
+**AI limits → Service connections → Claude → Sign in with Claude.** devd runs
+`claude auth login` in a short-lived container over the shared `claude-home` volume and shows
+the sign-in link; open it in a browser signed in to the Claude account with your subscription
+(use a private window if you have several), then paste the code Claude shows you into the
+dialog. Every session uses this sign-in; running Claude sessions pick it up when they start
+again. **Sign in again** switches accounts. Extra accounts for automatic selection are added in
+the account pool ([account-pool.md](account-pool.md)).
+
+The sign-in routes accept only operator addresses (like approvals), so a session container
+cannot replace the shared credentials. Codex, Grok and Antigravity have their own sign-in
+buttons in the same list.
+
 ## Compared with the Mac integration
 
 | | Mac with listener | Browser only |
@@ -51,4 +65,5 @@ selection that bypasses tmux, which you can copy with the browser's own copy com
 | Image or file into the prompt | `⌘V` / `⌘⇧V` in Warp | paste, drop or **Upload file** in the dashboard terminal |
 | Notifications | macOS notifications, click focuses the Warp tab | the dashboard Overview |
 | Copy out of a session | Mac clipboard via the listener | browser clipboard via OSC 52 |
+| Claude Code sign-in | `claude auth login` on the Mac, or in a session | **Sign in with Claude** in the dashboard |
 | `open` / `preview` from a container | opens on the Mac | not available |

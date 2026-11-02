@@ -103,7 +103,8 @@ locked:
 dev acme/web       # from the Mac, or use "New session" in the dashboard
 ```
 
-Log in to `claude` (and `codex`/`grok`) once inside the first session. The login lives in
+Log in to `claude` (and `codex`/`grok`) once inside the first session, or from the dashboard
+(*AI limits → Service connections*; see [browser.md](browser.md#signing-in-claude-code)). The login lives in
 shared volumes (`claude-home`, `codex-home`, `grok-home`), so every later session reuses it.
 If plugins or MCP servers were provisioned before the login, run the sync again:
 
