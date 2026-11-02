@@ -55,3 +55,20 @@ test("an unknown server is reported as unknown, not as not ready", () => {
   expect(r.ready).toBe(false);
   if (!r.ready) expect(r.unknownServer).toBe(true);
 });
+
+test("an approved legacy MariaDB migration profile needs a new plan without rewriting its approval", () => {
+  const db = openDb(":memory:");
+  const input = { session: "s", project: "p", wanted: "fixture", why: "stored-object migrations", scope: "migration" as const };
+  const id = createDbRequest(db, input);
+  const originalPlan = JSON.stringify({ entry: { engine: "mariadb" }, write: true, migrations: true });
+  db.query("INSERT INTO db_onboarding(request_id,state,plan,blocks,operation_id,updated_at) VALUES(?,?,?,?,?,?)")
+    .run(id, "ready", originalPlan, "[]", 472, Date.now());
+  setDbRequestStatus(db, id, "approved");
+  expect(createDbRequest(db, { ...input, scope: "read" })).toBe(id);
+  const upgrade = createDbRequest(db, input);
+  expect(upgrade).not.toBe(id);
+  expect(createDbRequest(db, input)).toBe(upgrade);
+  expect(getDbRequest(db, id)!.status).toBe("approved");
+  expect((db.query("SELECT plan,operation_id FROM db_onboarding WHERE request_id=?").get(id) as any))
+    .toEqual({ plan: originalPlan, operation_id: 472 });
+});

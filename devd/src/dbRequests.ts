@@ -1,3 +1,4 @@
+import { MARIA_STORED_OBJECT_PROFILE } from "./mariaDbMigrationProfile";
 import type { Database } from "bun:sqlite";
 import type { Catalog } from "./prodDb";
 
@@ -34,7 +35,13 @@ export function createDbRequest(
     if (open.status === "rejected") return open.id;
     let provided = open.requested_scope ?? "read";
     if (open.status === "approved" && open.plan) {
-      try { const plan = JSON.parse(open.plan); provided = plan.migrations ? "migration" : plan.write ? "dml" : "read"; }
+      try {
+        const plan = JSON.parse(open.plan);
+        provided = plan.migrations ? "migration" : plan.write ? "dml" : "read";
+        // Expanded stored-object grants require a new immutable approval plan.
+        if (provided === "migration" && plan.entry?.engine === "mariadb"
+          && plan.mariaMigrationProfile !== MARIA_STORED_OBJECT_PROFILE) provided = "dml";
+      }
       catch { provided = "read"; }
     }
     if (rank[provided] >= rank[scope]) return open.id;
