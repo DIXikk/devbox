@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { filesFrom, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "./terminalUpload";
+import { filesFrom, isPasteShortcut, MAX_UPLOAD_BYTES, promptText, tooLarge, uploadName, uploadToSession } from "./terminalUpload";
 
 const at = new Date(2026, 10, 3, 9, 5, 7);
 
@@ -49,4 +49,16 @@ test("uploadToSession: raw body, encoded name header, returns the path; surfaces
   await expect(uploadToSession("dev-a", file, "x", denied)).rejects.toThrow("file is too large (max 25 MB)");
   const broken = (async () => new Response("<html>", { status: 502 })) as unknown as typeof fetch;
   await expect(uploadToSession("dev-a", file, "x", broken)).rejects.toThrow("HTTP 502");
+});
+
+test("isPasteShortcut: Ctrl+V (and Ctrl+Shift+V) keydown only", () => {
+  const k = (o: Partial<{ type: string; key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean }>) =>
+    ({ type: "keydown", key: "v", ctrlKey: true, altKey: false, metaKey: false, ...o });
+  expect(isPasteShortcut(k({}))).toBe(true);
+  expect(isPasteShortcut(k({ key: "V" }))).toBe(true);           // with Shift
+  expect(isPasteShortcut(k({ type: "keyup" }))).toBe(false);
+  expect(isPasteShortcut(k({ ctrlKey: false }))).toBe(false);    // plain v
+  expect(isPasteShortcut(k({ altKey: true }))).toBe(false);      // AltGr combos on Windows report ctrl+alt
+  expect(isPasteShortcut(k({ metaKey: true }))).toBe(false);
+  expect(isPasteShortcut(k({ key: "c" }))).toBe(false);
 });

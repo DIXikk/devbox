@@ -19,6 +19,9 @@ into a local terminal. A clipboard screenshot gets a timestamped name (`img-<dat
 
 - Limit: 25 MB per file, the same as `⌘⇧V` on the Mac.
 - Plain-text pastes are not affected; they go to the terminal as before.
+- In the dashboard terminal **Ctrl+V pastes** (on Windows/Linux it would otherwise be sent to
+  the session as the control character `^V`). For a literal `^V` in an editor use its
+  alternative (e.g. `Ctrl+Q` in vim).
 - Uploads are accepted only from operator addresses (loopback, the tailnet,
   `DEVD_APPROVAL_ALLOW`), the same allowlist as approvals, so a session container cannot
   write into another session's workspace. They work with a locked vault.
